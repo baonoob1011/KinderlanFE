@@ -27,9 +27,15 @@ export default function Wishlist() {
     if (!missing) return items;
 
     try {
-      const res = await api.get("/api/v1/products");
-      const raw = res?.data ?? res;
-      const list = Array.isArray(raw) ? raw : raw?.content ?? [];
+      // size=1000 + chuỗi bóc shape lấy Y HỆT ProductsPage (đã chứng minh chạy đúng).
+      // Thiếu size=1000 thì backend chỉ trả trang đầu (~20 sản phẩm) -> sản phẩm id
+      // lớn không có trong map, ảnh vẫn trống.
+      const res = await api.get("/api/v1/products?size=1000");
+      const data = res?.data;
+      const list = Array.isArray(data)
+        ? data
+        : data?.content || data?.data?.content || data?.data || [];
+
       const imageByProductId = new Map<number, string>();
       for (const p of list) {
         if (p?.id != null && p?.imageUrl) imageByProductId.set(Number(p.id), p.imageUrl);

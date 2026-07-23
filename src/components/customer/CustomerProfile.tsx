@@ -308,21 +308,24 @@ export default function CustomerProfile() {
         </Link>
 
         {/* PROFILE HEADER */}
-        <Card className="mb-8 overflow-hidden border-none shadow-2xl bg-white ring-1 ring-black/5">
-          <div className="bg-gradient-to-r from-[#AF140B] via-[#D32F2F] to-[#C62828] h-24 relative">
+        {/* Card để overflow-visible, bo góc được giữ bằng chính lớp banner
+            (rounded-t + overflow-hidden). Nếu để overflow-hidden ở Card thì avatar
+            nhô ra ngoài sẽ bị xén; còn nếu avatar là flex item thì margin âm chỉ
+            căn lại trong dòng chứ không thực sự chồng lên banner. */}
+        <Card className="relative overflow-visible gap-0 mb-8 border-none shadow-2xl bg-white ring-1 ring-black/5">
+          <div className="relative h-28 overflow-hidden rounded-t-xl bg-gradient-to-r from-[#AF140B] via-[#D32F2F] to-[#C62828]">
             <div className="absolute inset-0 bg-black/10" />
           </div>
-          {/* Chỉ avatar được kéo đè lên banner; trước đây -mt-12 đặt trên cả hàng
-              nên tên, email và badge cũng bị nhấc lên chồng vào dải đỏ. */}
-          <CardContent className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6 pt-4 pb-6 px-6 sm:px-8 text-center sm:text-left">
-            <UserAvatar
-              src={user?.avatarUrl}
-              name={profileData?.firstName || user?.username || user?.name}
-              size={96}
-              // self-start là bắt buộc: với align-items:center, margin âm chỉ làm
-              // flex item tự căn lại trong dòng chứ không nhô lên khỏi khối trắng.
-              className="shadow-2xl border-4 border-white -mt-16 self-center sm:self-start shrink-0"
-            />
+
+          {/* Avatar là lớp riêng, nằm trên cả banner lẫn nội dung. */}
+          <UserAvatar
+            src={user?.avatarUrl}
+            name={profileData?.firstName || user?.username || user?.name}
+            size={96}
+            className="absolute top-28 left-1/2 -translate-x-1/2 -translate-y-1/2 sm:left-8 sm:translate-x-0 z-10 shadow-2xl border-4 border-white"
+          />
+
+          <CardContent className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-6 pt-14 pb-6 px-6 sm:pt-6 sm:pl-40 sm:pr-8 text-center sm:text-left">
             <div className="flex-1 min-w-0">
               <h2 className="text-2xl font-black text-gray-900 tracking-tight truncate">
                 {profileData?.firstName
