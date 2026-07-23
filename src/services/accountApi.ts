@@ -8,6 +8,10 @@ export interface UserResponse {
     firstName: string;
     lastName: string;
     role: string;
+    /** Phương thức đăng nhập gốc — BE luôn trả "LOCAL" khi cột còn NULL (tài khoản cũ). */
+    authProvider?: 'LOCAL' | 'GOOGLE';
+    /** Tài khoản có mật khẩu cục bộ để đổi hay không. Nguồn sự thật cho UI bảo mật. */
+    passwordLoginEnabled?: boolean;
     isActive: boolean;
     createdAt: string;
 }

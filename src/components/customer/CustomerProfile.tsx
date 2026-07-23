@@ -36,6 +36,7 @@ import api from '../../services/api';
 import { loyaltyApi } from '../../services/loyaltyApi';
 import { resolveTier } from '../../services/membership';
 import UserAvatar from '../common/UserAvatar';
+import GoogleIcon from '../common/GoogleIcon';
 
 interface Address {
   addressId: number;
@@ -89,6 +90,30 @@ export default function CustomerProfile() {
   const [pwForm, setPwForm] = useState({ oldPassword: '', newPassword: '', confirmPassword: '' });
   const [pwSaving, setPwSaving] = useState(false);
   const [pwError, setPwError] = useState<string | null>(null);
+
+  /**
+   * Tài khoản có mật khẩu cục bộ hay không — lấy từ BE (`passwordLoginEnabled`,
+   * fallback `authProvider`), TUYỆT ĐỐI không suy ra từ đuôi email: một địa chỉ
+   * @gmail.com vẫn có thể đăng ký bằng mật khẩu thường.
+   * Chưa tải xong profile thì coi như false để không nháy khối mật khẩu rồi ẩn.
+   */
+  const canChangePassword = profileData
+    ? (profileData.passwordLoginEnabled ?? profileData.authProvider !== 'GOOGLE')
+    : false;
+
+  const openPasswordDialog = () => {
+    // Chốt chặn thứ hai: kể cả khi vào thẳng /admin/change-password hay state cũ,
+    // tài khoản Google-only vẫn không mở được modal.
+    if (!canChangePassword) return;
+    setPwDialog(true);
+    setPwError(null);
+    setPwForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
+  };
+
+  // Profile tải xong mới biết là tài khoản Google → đóng modal nếu đang mở.
+  useEffect(() => {
+    if (!canChangePassword && pwDialog) setPwDialog(false);
+  }, [canChangePassword, pwDialog]);
 
   // ─── Fetch helpers ───────────────────────────────────────
   const fetchProfile = async () => {
@@ -266,6 +291,10 @@ export default function CustomerProfile() {
   // ─── Change Password handler ─────────────────────────────
   const handleChangePassword = async () => {
     setPwError(null);
+    if (!canChangePassword) {
+      setPwError('Tài khoản này đăng nhập bằng Google và không có mật khẩu cục bộ.');
+      return;
+    }
     if (!pwForm.oldPassword.trim()) { setPwError('Vui lòng nhập mật khẩu hiện tại'); return; }
     if (pwForm.newPassword.length < 6) { setPwError('Mật khẩu mới phải ít nhất 6 ký tự'); return; }
     if (pwForm.newPassword !== pwForm.confirmPassword) { setPwError('Mật khẩu xác nhận không khớp'); return; }
@@ -530,22 +559,46 @@ export default function CustomerProfile() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex justify-between items-center p-4 bg-gray-100 border border-gray-200 rounded-lg hover:bg-gray-200 transition">
-                  <div>
-                    <p className="font-semibold text-gray-900">Mật khẩu</p>
-                    <p className="text-sm text-gray-600">••••••••</p>
+                {canChangePassword ? (
+                  <>
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 p-4 bg-gray-100 border border-gray-200 rounded-lg hover:bg-gray-200 transition">
+                      <div>
+                        <p className="font-semibold text-gray-900">Mật khẩu</p>
+                        <p className="text-sm text-gray-600">••••••••</p>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={openPasswordDialog}>
+                        <KeyRound className="w-4 h-4 mr-2" />Đổi mật khẩu
+                      </Button>
+                    </div>
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 p-4 bg-gray-100 border border-gray-200 rounded-lg">
+                      <div>
+                        <p className="font-semibold text-gray-900">Xác thực 2 bước</p>
+                        <p className="text-sm text-gray-600">Tăng cường bảo mật tài khoản</p>
+                      </div>
+                      <Badge className="bg-gray-200 text-gray-700">Chưa kích hoạt</Badge>
+                    </div>
+                  </>
+                ) : (
+                  /* Tài khoản Google-only: không có mật khẩu cục bộ, và hệ thống
+                     chưa có 2FA riêng, nên cả hai dòng trên đều vô nghĩa. */
+                  <div className="flex items-start gap-3 p-4 bg-gray-100 border border-gray-200 rounded-lg">
+                    <GoogleIcon className="w-6 h-6 shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-900">Đăng nhập bằng Google</p>
+                      <p className="text-sm text-gray-600">
+                        Mật khẩu và bảo mật đăng nhập được quản lý bởi tài khoản Google của bạn.
+                      </p>
+                      <a
+                        href="https://myaccount.google.com/security"
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="inline-block mt-2"
+                      >
+                        <Button variant="outline" size="sm">Quản lý tài khoản Google</Button>
+                      </a>
+                    </div>
                   </div>
-                  <Button variant="outline" size="sm" onClick={() => { setPwDialog(true); setPwError(null); setPwForm({ oldPassword: '', newPassword: '', confirmPassword: '' }); }}>
-                    <KeyRound className="w-4 h-4 mr-2" />Đổi mật khẩu
-                  </Button>
-                </div>
-                <div className="flex justify-between items-center p-4 bg-gray-100 border border-gray-200 rounded-lg">
-                  <div>
-                    <p className="font-semibold text-gray-900">Xác thực 2 bước</p>
-                    <p className="text-sm text-gray-600">Tăng cường bảo mật tài khoản</p>
-                  </div>
-                  <Badge className="bg-gray-200 text-gray-700">Chưa kích hoạt</Badge>
-                </div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -582,7 +635,10 @@ export default function CustomerProfile() {
       </div>
 
       {/* ── CHANGE PASSWORD DIALOG ── */}
-      <Dialog open={pwDialog} onOpenChange={(open) => { if (!open) { setPwDialog(false); setPwError(null); } }}>
+      <Dialog
+        open={pwDialog && canChangePassword}
+        onOpenChange={(open: boolean) => { if (!open) { setPwDialog(false); setPwError(null); } }}
+      >
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
