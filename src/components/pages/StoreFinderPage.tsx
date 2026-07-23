@@ -93,7 +93,9 @@ export default function StoreFinderPage() {
     return searchResults !== null || selectedCity === "" || city === selectedCity;
   });
 
-  const formatHours = (open: string, close: string) => `${open} - ${close}`;
+  // Cửa hàng chưa khai báo giờ mở cửa từng hiện thẳng chuỗi "null - null" ra trang.
+  const formatHours = (open?: string | null, close?: string | null) =>
+    open && close ? `${open} - ${close}` : "Chưa cập nhật giờ mở cửa";
 
   if (loading) {
     return (

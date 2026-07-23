@@ -67,6 +67,8 @@ export const extractCityFromAddress = (address: string): string => {
     if (address.includes("TP.HCM") || address.includes("Hồ Chí Minh")) return "TP. Hồ Chí Minh";
     if (address.includes("Hà Nội")) return "Hà Nội";
     if (address.includes("Đà Nẵng")) return "Đà Nẵng";
+    if (address.includes("Cần Thơ")) return "Cần Thơ";
+    if (address.includes("Hải Phòng")) return "Hải Phòng";
     return "Khác";
 };
 
