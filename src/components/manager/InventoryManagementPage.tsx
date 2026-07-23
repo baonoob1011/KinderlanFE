@@ -216,12 +216,27 @@ export default function InventoryManagementPage() {
         try {
             const res = await inventoryApi.getStoreAvailability(id);
             setSearchedSkuId(id);
-            const available = (res.data || []).filter(
-                (s) => !s.availabilityStatus.toLowerCase().includes('hết') && String(s.storeId) !== String(storeId)
+
+            const all = res.data || [];
+            // Chi nhánh khác (không tính cửa hàng của chính mình).
+            const others = all.filter((s) => String(s.storeId) !== String(storeId));
+            // Backend trả availabilityStatus = "IN_STOCK"/"OUT_OF_STOCK" (InventoryService).
+            // Bản cũ lọc bằng .includes('hết') — chuỗi tiếng Việt backend không bao giờ
+            // gửi -> điều kiện luôn đúng, nên chi nhánh HẾT HÀNG vẫn được đề xuất làm
+            // nguồn chuyển kho.
+            const available = others.filter((s) =>
+                s.quantity != null ? s.quantity > 0 : s.availabilityStatus === 'IN_STOCK',
             );
+
             setStoreAvailability(available);
-            if (available.length === 0) {
-                setSearchError('Không có chi nhánh nào còn hàng cho SKU này.');
+
+            // Ba tình huống khác hẳn nhau, trước đây gộp chung một câu gây hiểu nhầm.
+            if (others.length === 0) {
+                setSearchError(
+                    'Hệ thống chỉ có 1 chi nhánh nên không thể chuyển kho. Cần tạo thêm chi nhánh, hoặc dùng tab "Nhập hàng" để cộng thẳng tồn kho.',
+                );
+            } else if (available.length === 0) {
+                setSearchError('Các chi nhánh khác đều đã hết SKU này.');
             }
         } catch (err: unknown) {
             setSearchError(err instanceof Error ? err.message : 'Không thể tải dữ liệu.');
