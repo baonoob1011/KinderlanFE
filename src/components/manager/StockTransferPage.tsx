@@ -117,61 +117,77 @@ export default function StockTransferPage() {
         fetchStoreSkus();
     }, [storeId]);
 
-    const [storeAvailability, setStoreAvailability] = useState<StoreAvailability[]>([]);
-    const [searching, setSearching] = useState(false);
-    const [searchError, setSearchError] = useState<string | null>(null);
-    const [selectedSourceId, setSelectedSourceId] = useState<number | null>(null);
+    // Chi nhánh NHẬN hàng. Backend luôn lấy cửa hàng của người tạo làm fromStore
+    // (TransferService.createDraft), nên toStoreId BẮT BUỘC là nơi nhận — trước đây
+    // FE gửi nhầm chi nhánh đang có hàng vào đây, làm hàng chạy ngược chiều.
+    const [stores, setStores] = useState<StoreItem[]>([]);
+    const [loadingStores, setLoadingStores] = useState(true);
+    const [selectedDestId, setSelectedDestId] = useState<number | null>(null);
     const [quantity, setQuantity] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [submitSuccess, setSubmitSuccess] = useState(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
+    const [confirmOpen, setConfirmOpen] = useState(false);
+    const [sentSummary, setSentSummary] = useState<{ sku: string; qty: string; to: string } | null>(null);
 
-    const handleSearch = async () => {
-        const id = parseInt(skuInput.trim(), 10);
-        if (isNaN(id) || id <= 0) { setSearchError('Vui lòng chọn sản phẩm hợp lệ.'); return; }
-        setSearching(true); setSearchError(null); setStoreAvailability([]); setSelectedSourceId(null);
-        setQuantity(''); setSubmitSuccess(false); setSubmitError(null);
-        try {
-            const res = await inventoryApi.getStoreAvailability(id);
-            setSearchedSkuId(id);
-            const available = (res.data || []).filter(
-                (s) => hasStock(s) && String(s.storeId) !== String(storeId)
-            );
-            setStoreAvailability(available);
-            if (available.length === 0) setSearchError('Không có chi nhánh nào còn hàng cho SKU này.');
-        } catch (err: unknown) {
-            setSearchError(err instanceof Error ? err.message : 'Không thể tải dữ liệu.');
-        } finally { setSearching(false); }
-    };
+    useEffect(() => {
+        const fetchStores = async () => {
+            try {
+                setStores(await storeApi.getStores());
+            } catch (err) {
+                console.error('Failed to fetch stores', err);
+            } finally { setLoadingStores(false); }
+        };
+        fetchStores();
+    }, []);
 
-    const selectedStore = storeAvailability.find(s => s.storeId === selectedSourceId);
+    // Không bao giờ cho chuyển hàng cho chính mình.
+    const destinationStores = stores.filter(
+        (s) => s.active && String(s.id) !== String(storeId),
+    );
+
+    const selectedSku = storeSkus.find((s) => String(s.skuId) === skuInput) || null;
+    const availableQty = selectedSku?.quantity ?? 0;
+    const selectedDest = destinationStores.find((s) => s.id === selectedDestId) || null;
+
     const qtyNum = parseInt(quantity, 10);
-    const isExceeding = selectedStore?.quantity !== undefined && qtyNum > selectedStore.quantity;
-    const canSubmit = selectedSourceId !== null && searchedSkuId !== null && !isNaN(qtyNum) && qtyNum > 0 && !isExceeding;
+    // Tồn kho khả dụng là của CHÍNH chi nhánh hiện tại (bên gửi).
+    const isExceeding = !isNaN(qtyNum) && qtyNum > availableQty;
+    const canSubmit =
+        selectedSku !== null && selectedDestId !== null &&
+        !isNaN(qtyNum) && qtyNum > 0 && !isExceeding && !submitting;
 
     const handleSubmit = async () => {
-        if (!canSubmit) return;
+        if (!canSubmit || !selectedSku || !selectedDest) return;
         setSubmitting(true); setSubmitError(null);
         try {
             const draft = await api.post('/api/v1/transfer/draft', {
-                toStoreId: selectedSourceId,
-                skuId: searchedSkuId,
+                // Chi nhánh NHẬN hàng — bên gửi là cửa hàng hiện tại, do backend tự gán.
+                toStoreId: selectedDest.id,
+                skuId: selectedSku.skuId,
                 quantity: qtyNum,
             });
             const draftId = draft?.data?.id ?? draft?.id;
             if (draftId) await api.post(`/api/v1/transfer/${draftId}/submit`);
+            setSentSummary({
+                sku: `[${selectedSku.skuCode}] ${selectedSku.productName}`,
+                qty: String(qtyNum),
+                to: selectedDest.name,
+            });
             setSubmitSuccess(true);
-            toast.success('Yêu cầu chuyển kho đã được gửi!');
+            setConfirmOpen(false);
+            toast.success(`Đã gửi phiếu chuyển ${qtyNum} sản phẩm đến ${selectedDest.name}`);
             fetchTransfers();
         } catch (err: unknown) {
-            setSubmitError(err instanceof Error ? err.message : 'Tạo yêu cầu thất bại.');
+            setSubmitError(err instanceof Error ? err.message : 'Tạo phiếu chuyển hàng thất bại.');
+            setConfirmOpen(false);
         } finally { setSubmitting(false); }
     };
 
     const handleReset = () => {
-        setSubmitSuccess(false); setSkuInput(''); setSearchedSkuId(null);
-        setStoreAvailability([]); setSelectedSourceId(null); setQuantity('');
-        setSubmitError(null); setSearchError(null);
+        setSubmitSuccess(false); setSkuInput('');
+        setSelectedDestId(null); setQuantity('');
+        setSubmitError(null); setSentSummary(null);
     };
 
     return (
