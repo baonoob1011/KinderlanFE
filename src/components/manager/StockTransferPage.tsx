@@ -41,21 +41,6 @@ type Transfer = {
     createdBy: string;
 };
 
-/**
- * Chi nhánh có thể làm nguồn chuyển kho hay không.
- *
- * KHÔNG dò chuỗi tiếng Việt ("hết") trên availabilityStatus: API trả về mã enum
- * (IN_STOCK / LOW_STOCK / OUT_OF_STOCK), nên "OUT_OF_STOCK" không chứa "hết" và mọi
- * chi nhánh hết hàng đều lọt qua bộ lọc. Chọn phải một chi nhánh như vậy thì
- * quantity = 0 -> "Tối đa: 0" -> ô nhập bị kẹp về 0, không gõ được số nào.
- * quantity là con số thật, dùng nó làm căn cứ; status chỉ để hiển thị.
- */
-const hasStock = (s: StoreAvailability): boolean => {
-    if (typeof s.quantity === 'number') return s.quantity > 0;
-    const status = (s.availabilityStatus || '').toLowerCase();
-    return !status.includes('out_of_stock') && !status.includes('hết');
-};
-
 export default function StockTransferPage() {
     const { adminUser } = useAdmin();
     const storeId = adminUser?.storeId ?? localStorage.getItem('storeId') ?? '';
@@ -86,7 +71,7 @@ export default function StockTransferPage() {
     const handleAction = async (id: number, action: string, actionLabel: string) => {
         setActionLoading(id);
         try {
-            await api.post(`/api/v1/transfer/${id}/${action}`);
+            await api.post(`/api/v1/transfer/${id}/${action}`, {});
             toast.success(`${actionLabel} thành công!`);
             await fetchTransfers();
         } catch (err: any) {
@@ -171,7 +156,7 @@ export default function StockTransferPage() {
                 quantity: qtyNum,
             });
             const draftId = draft?.data?.id ?? draft?.id;
-            if (draftId) await api.post(`/api/v1/transfer/${draftId}/submit`);
+            if (draftId) await api.post(`/api/v1/transfer/${draftId}/submit`, {});
             setSentSummary({
                 sku: `[${selectedSku.skuCode}] ${selectedSku.productName}`,
                 qty: String(qtyNum),
@@ -216,9 +201,9 @@ export default function StockTransferPage() {
             <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
                 <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
                     <TabButton active={activeTab === 'outgoing'} onClick={() => setActiveTab('outgoing')}
-                        icon={<Send className="w-4 h-4" />} label="Yêu cầu đã gửi" count={outgoing.length} />
+                        icon={<Send className="w-4 h-4" />} label="Phiếu chuyển đi" count={outgoing.length} />
                     <TabButton active={activeTab === 'incoming'} onClick={() => setActiveTab('incoming')}
-                        icon={<Inbox className="w-4 h-4" />} label="Yêu cầu nhận được" badge={incomingPendingCount} />
+                        icon={<Inbox className="w-4 h-4" />} label="Hàng chuyển đến" badge={incomingPendingCount} />
                     <TabButton active={activeTab === 'create'} onClick={() => setActiveTab('create')}
                         icon={<Package className="w-4 h-4" />} label="Tạo phiếu chuyển hàng" />
                 </div>
@@ -231,8 +216,8 @@ export default function StockTransferPage() {
                     <>
                         <div className="flex items-center justify-between">
                             <div>
-                                <h2 className="text-lg font-semibold text-gray-800">Yêu cầu đã gửi</h2>
-                                <p className="text-sm text-gray-500">Các yêu cầu chuyển kho bạn đã tạo và gửi đi</p>
+                                <h2 className="text-lg font-semibold text-gray-800">Phiếu chuyển đi</h2>
+                                <p className="text-sm text-gray-500">Hàng chuyển từ chi nhánh của bạn sang chi nhánh khác</p>
                             </div>
                             <Button variant="outline" size="sm" onClick={fetchTransfers} disabled={loadingTransfers}>
                                 <RefreshCw className={`w-4 h-4 mr-1 ${loadingTransfers ? 'animate-spin' : ''}`} />
@@ -243,13 +228,13 @@ export default function StockTransferPage() {
                         {loadingTransfers ? (
                             <LoadingState />
                         ) : outgoing.length === 0 ? (
-                            <EmptyState text="Bạn chưa gửi yêu cầu chuyển kho nào" />
+                            <EmptyState text="Bạn chưa tạo phiếu chuyển hàng nào" />
                         ) : (
                             <div className="space-y-2">
                                 {outgoing.map(t => {
                                     const actions: ActionDef[] = [];
                                     if (t.status === 'DRAFT')
-                                        actions.push({ label: 'Gửi yêu cầu', action: 'submit', variant: 'default' });
+                                        actions.push({ label: 'Gửi phiếu', action: 'submit', variant: 'default' });
                                     if (t.status === 'APPROVED')
                                         actions.push({ label: 'Giao hàng', action: 'ship', variant: 'default' });
                                     return (
@@ -267,8 +252,8 @@ export default function StockTransferPage() {
                     <>
                         <div className="flex items-center justify-between">
                             <div>
-                                <h2 className="text-lg font-semibold text-gray-800">Yêu cầu nhận được</h2>
-                                <p className="text-sm text-gray-500">Các chi nhánh khác yêu cầu chuyển hàng đến kho của bạn</p>
+                                <h2 className="text-lg font-semibold text-gray-800">Hàng chuyển đến</h2>
+                                <p className="text-sm text-gray-500">Hàng do chi nhánh khác chuyển sang kho của bạn — bạn là bên duyệt và nhận</p>
                             </div>
                             <Button variant="outline" size="sm" onClick={fetchTransfers} disabled={loadingTransfers}>
                                 <RefreshCw className={`w-4 h-4 mr-1 ${loadingTransfers ? 'animate-spin' : ''}`} />
@@ -279,7 +264,7 @@ export default function StockTransferPage() {
                         {loadingTransfers ? (
                             <LoadingState />
                         ) : incoming.length === 0 ? (
-                            <EmptyState text="Không có yêu cầu nào từ chi nhánh khác" />
+                            <EmptyState text="Chưa có chi nhánh nào chuyển hàng đến" />
                         ) : (
                             <div className="space-y-4">
                                 {/* Pending approval — highlighted */}
@@ -311,7 +296,7 @@ export default function StockTransferPage() {
                                         {incoming.filter(t => t.status !== 'PENDING_APPROVAL').map(t => {
                                             const actions: ActionDef[] = [];
                                             if (t.status === 'OUT_FOR_DELIVERY') {
-                                                actions.push({ label: 'Xác nhận nhận', action: 'receive', variant: 'default' });
+                                                actions.push({ label: 'Xác nhận đã nhận', action: 'receive', variant: 'default' });
                                                 actions.push({ label: 'Mất/Hỏng', action: 'lost-damaged', variant: 'destructive' });
                                             }
                                             if (t.status === 'RECEIVED')
@@ -523,6 +508,50 @@ export default function StockTransferPage() {
                     </>
                 )}
             </div>
+
+            {/* Xác nhận CHIỀU chuyển hàng trước khi tạo phiếu — bước này tồn tại để
+                người dùng không bao giờ gửi nhầm kho của mình đi nơi khác. */}
+            <Dialog open={confirmOpen} onOpenChange={(open: boolean) => { if (!open) setConfirmOpen(false); }}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Truck className="w-5 h-5 text-blue-600" />Xác nhận chuyển hàng
+                        </DialogTitle>
+                        <DialogDescription>
+                            Hàng sẽ bị trừ khỏi kho chi nhánh của bạn khi bạn bấm "Giao hàng" ở bước sau.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-3 py-1 text-sm">
+                        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-2">
+                            <p>
+                                Chuyển <strong>{quantity}</strong>{' '}
+                                <strong>{selectedSku ? `[${selectedSku.skuCode}] ${selectedSku.productName}` : ''}</strong>
+                            </p>
+                            <p className="text-gray-600">
+                                Từ: <strong className="text-blue-700">{storeName || `Store #${storeId}`}</strong>
+                            </p>
+                            <p className="text-gray-600">
+                                Đến: <strong className="text-green-700">{selectedDest?.name}</strong>
+                            </p>
+                        </div>
+                        <p className="text-xs text-gray-500">
+                            Tồn kho của bạn sau khi giao: {Math.max(availableQty - (parseInt(quantity, 10) || 0), 0)}
+                        </p>
+                    </div>
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={submitting}>
+                            Huỷ
+                        </Button>
+                        <Button onClick={handleSubmit} disabled={submitting} className="bg-blue-600 hover:bg-blue-700">
+                            {submitting
+                                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Đang gửi...</>
+                                : <><Truck className="w-4 h-4 mr-2" />Xác nhận chuyển</>}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
@@ -613,20 +642,3 @@ function EmptyState({ text }: { text: string }) {
     );
 }
 
-// API trả mã enum (IN_STOCK/LOW_STOCK/OUT_OF_STOCK); trước đây chỉ dò tiếng Việt nên
-// "OUT_OF_STOCK" rơi vào nhánh mặc định -> hết hàng mà hiện badge XANH LÁ.
-function AvailBadge({ status }: { status: string }) {
-    const s = (status || '').toLowerCase();
-    const isOut = s.includes('out_of_stock') || s.includes('hết');
-    const isLow =
-        s.includes('low_stock') || s.includes('ít') || s.includes('thấp') || s.includes('sắp');
-
-    const label = isOut ? 'Hết hàng' : isLow ? 'Còn ít' : 'Còn hàng';
-    const tone = isOut
-        ? 'bg-red-100 text-red-700 border-red-200'
-        : isLow
-            ? 'bg-yellow-100 text-yellow-700 border-yellow-200'
-            : 'bg-green-100 text-green-700 border-green-200';
-
-    return <Badge className={`${tone} text-xs`}>{label}</Badge>;
-}
