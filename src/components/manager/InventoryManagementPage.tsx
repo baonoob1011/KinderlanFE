@@ -22,7 +22,7 @@ import api from '../../services/api';
 function SkeletonRow() {
     return (
         <tr className="animate-pulse">
-            {Array.from({ length: 6 }).map((_, i) => (
+            {Array.from({ length: 7 }).map((_, i) => (
                 <td key={i} className="px-4 py-3">
                     <div className="h-4 bg-gray-200 rounded w-4/5" />
                 </td>
@@ -72,7 +72,7 @@ export default function InventoryManagementPage() {
 
     useEffect(() => { if (storeId) fetchInventory(); }, [storeId]);
 
-    const COLUMN_COUNT = 6;
+    const COLUMN_COUNT = 7;
 
     const filtered = items.filter((item) => {
         const q = search.toLowerCase();
@@ -91,6 +91,42 @@ export default function InventoryManagementPage() {
     const paged = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
     useEffect(() => { setPage(1); }, [search]);
+
+    // ── Tăng nhanh số lượng ngay trên dòng tồn kho ──
+    // Trước đây muốn cộng thêm hàng phải sang tab "Nhập hàng", chọn lại SKU trong
+    // dropdown rồi mới nhập được số. Ở đây dùng chung endpoint POST /inventory/import
+    // (cộng dồn vào tồn hiện có, store lấy theo manager đang đăng nhập).
+    const [quickQty, setQuickQty] = useState<Record<number, string>>({});
+    const [quickSubmitting, setQuickSubmitting] = useState<number | null>(null);
+
+    const handleQuickImport = async (item: InventoryItem) => {
+        const raw = quickQty[item.skuId] ?? '';
+        // Ô trống = cộng 1 cho thao tác nhanh nhất.
+        const qty = raw.trim() === '' ? 1 : parseInt(raw, 10);
+        if (isNaN(qty) || qty <= 0) {
+            setError('Số lượng nhập thêm phải là số nguyên dương.');
+            return;
+        }
+        setQuickSubmitting(item.skuId);
+        setError(null);
+        try {
+            await inventoryApi.importStock(item.skuId, qty);
+            // Cập nhật tại chỗ để số nhảy ngay, không phải chờ tải lại cả bảng.
+            setItems((prev) =>
+                prev.map((i) =>
+                    i.skuId === item.skuId ? { ...i, quantity: i.quantity + qty } : i,
+                ),
+            );
+            setQuickQty((prev) => ({ ...prev, [item.skuId]: '' }));
+            setLastUpdated(new Date());
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : 'Nhập thêm thất bại.');
+            // Thất bại thì đồng bộ lại với server để số hiển thị không bị lệch.
+            fetchInventory();
+        } finally {
+            setQuickSubmitting(null);
+        }
+    };
 
     // ========================
     // TAB 2: Transfer State
@@ -372,6 +408,7 @@ export default function InventoryManagementPage() {
                                                 <th className="px-4 py-3 text-left font-semibold text-gray-600 whitespace-nowrap">Kích cỡ</th>
                                                 <th className="px-4 py-3 text-left font-semibold text-gray-600 whitespace-nowrap">Loại</th>
                                                 <th className="px-4 py-3 text-center font-semibold text-gray-600 whitespace-nowrap">Số lượng</th>
+                                                <th className="px-4 py-3 text-center font-semibold text-gray-600 whitespace-nowrap">Nhập thêm</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
@@ -410,6 +447,36 @@ export default function InventoryManagementPage() {
                                                         <span className={`font-bold text-base ${item.quantity === 0 ? 'text-red-600' : item.quantity <= 5 ? 'text-yellow-600' : 'text-green-700'}`}>
                                                             {item.quantity}
                                                         </span>
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <div className="flex items-center justify-center gap-1.5">
+                                                            <Input
+                                                                type="number"
+                                                                min={1}
+                                                                placeholder="1"
+                                                                value={quickQty[item.skuId] ?? ''}
+                                                                onChange={(e) =>
+                                                                    setQuickQty((prev) => ({ ...prev, [item.skuId]: e.target.value }))
+                                                                }
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Enter') handleQuickImport(item);
+                                                                }}
+                                                                disabled={quickSubmitting === item.skuId}
+                                                                className="h-8 w-20 text-center"
+                                                            />
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                title="Nhập thêm vào tồn kho"
+                                                                disabled={quickSubmitting === item.skuId}
+                                                                onClick={() => handleQuickImport(item)}
+                                                                className="h-8 w-8 p-0"
+                                                            >
+                                                                {quickSubmitting === item.skuId
+                                                                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                                                                    : <Plus className="w-4 h-4" />}
+                                                            </Button>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             ))}
