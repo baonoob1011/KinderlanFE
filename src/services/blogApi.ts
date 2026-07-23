@@ -1,127 +1,166 @@
 // Blog API Service
 // Uses api.get/post/put/delete (same pattern as productApi.ts)
 
-import api from './api';
+import api from "./api";
 
 // --- Types ---
 
 export interface BlogItem {
-    blogId: number;
-    accountId: number;
-    authorName: string;
-    title: string;
-    content: string;
-    categoryId: number;
-    categoryName: string;
-    status: boolean;
-    publishedAt: string;
-    createdAt: string;
-    updatedAt: string | null;
-    imageUrl: string;
-    timeRead: number;
+  blogId: number;
+  accountId: number;
+  authorName: string;
+  title: string;
+  content: string;
+  categoryId: number;
+  categoryName: string;
+  status: boolean;
+  publishedAt: string;
+  createdAt: string;
+  updatedAt: string | null;
+  imageUrl: string;
+  timeRead: number;
 }
 
 export interface AdminBlogPageResponse {
-    content: BlogItem[];
-    totalElements: number;
-    totalPages: number;
-    size: number;
-    number: number;
-    first: boolean;
-    last: boolean;
+  content: BlogItem[];
+  totalElements: number;
+  totalPages: number;
+  size: number;
+  number: number;
+  first: boolean;
+  last: boolean;
 }
 
 export interface CreateBlogPayload {
-    title: string;
-    content: string;
-    categoryId: number;
-    imageUrl?: string;
-    timeRead?: number;
-    status?: boolean;
+  title: string;
+  content: string;
+  categoryId: number;
+  imageUrl?: string;
+  timeRead?: number;
+  status?: boolean;
 }
 
 // Helper to normalize blog list responses
 const normalizeBlogs = (res: any): BlogItem[] => {
-    if (Array.isArray(res)) return res;
-    if (res?.data && Array.isArray(res.data)) return res.data;
-    if (res?.data?.content && Array.isArray(res.data.content)) return res.data.content;
-    if (res?.content && Array.isArray(res.content)) return res.content;
-    return [];
+  if (Array.isArray(res)) return res;
+  if (res?.data && Array.isArray(res.data)) return res.data;
+  if (res?.data?.content && Array.isArray(res.data.content))
+    return res.data.content;
+  if (res?.content && Array.isArray(res.content)) return res.content;
+  return [];
 };
 
 // --- API ---
 
 export const blogApi = {
-    /**
-     * [PUBLIC] Get published blogs
-     * GET /api/v1/blogs?page=0&size=20
-     */
-    getBlogs: async (page = 0, size = 20): Promise<BlogItem[]> => {
-        const res = await api.get(`/api/v1/blogs?page=${page}&size=${size}`);
-        return normalizeBlogs(res);
-    },
+  /**
+   * [PUBLIC] Get published blogs
+   * GET /api/v1/blogs?page=0&size=20
+   */
+  getBlogs: async (page = 0, size = 20): Promise<BlogItem[]> => {
+    const res = await api.get(`/api/v1/blogs?page=${page}&size=${size}`);
+    return normalizeBlogs(res);
+  },
 
-    /**
-     * [ADMIN] Get all blogs (paginated, with search)
-     * GET /api/v1/blogs/admin?page=0&size=20&keyword=...
-     */
-    getAdminBlogs: async (params?: {
-        page?: number;
-        size?: number;
-        keyword?: string;
-    }): Promise<AdminBlogPageResponse> => {
-        const q = new URLSearchParams();
-        q.set('page', String(params?.page ?? 0));
-        q.set('size', String(params?.size ?? 20));
-        if (params?.keyword) q.set('keyword', params.keyword);
+  /**
+   * [ADMIN] Get all blogs (paginated, with search)
+   * GET /api/v1/blogs/admin?page=0&size=20&keyword=...
+   */
+  getAdminBlogs: async (params?: {
+    page?: number;
+    size?: number;
+    keyword?: string;
+  }): Promise<AdminBlogPageResponse> => {
+    const q = new URLSearchParams();
+    q.set("page", String(params?.page ?? 0));
+    q.set("size", String(params?.size ?? 20));
+    if (params?.keyword) q.set("keyword", params.keyword);
 
-        const res = await api.get(`/api/v1/blogs/admin?${q}`);
-        const raw = res?.data ?? res;
-        return {
-            content: raw.content ?? raw.items ?? [],
-            totalElements: raw.totalElements ?? 0,
-            totalPages: raw.totalPages ?? 1,
-            size: raw.size ?? 20,
-            number: raw.number ?? 0,
-            first: raw.first ?? true,
-            last: raw.last ?? true,
-        };
-    },
+    const res = await api.get(`/api/v1/blogs/admin?${q}`);
+    const raw = res?.data ?? res;
 
-    /**
-     * Get blog by ID
-     * GET /api/v1/blogs/{id}
-     */
-    getBlogById: async (id: number | string): Promise<BlogItem> => {
-        const res = await api.get(`/api/v1/blogs/${id}`);
-        return res?.data ?? res;
-    },
+    // Backend GET /api/v1/blogs/admin trả BaseResponse<List<BlogResponse>> — data là
+    // MẢNG THUẦN, KHÔNG phải Page. Code cũ đọc raw.content nên luôn ra [] dù DB có bài,
+    // khiến bảng admin trống trơn và "Tổng bài viết" luôn = 0.
+    // Vẫn giữ nhánh đọc Page phòng khi backend đổi sang phân trang thật.
+    if (Array.isArray(raw)) {
+      const page = params?.page ?? 0;
+      const size = params?.size ?? 20;
+      const keyword = (params?.keyword ?? "").trim().toLowerCase();
 
-    /**
-     * [ADMIN] Create a new blog post
-     * POST /api/v1/blogs
-     */
-    createBlog: async (payload: CreateBlogPayload): Promise<BlogItem> => {
-        const res = await api.post('/api/v1/blogs', payload);
-        return res?.data ?? res;
-    },
+      // Backend chưa hỗ trợ keyword/page/size -> lọc và cắt trang ở client.
+      const filtered = keyword
+        ? raw.filter(
+            (b: any) =>
+              String(b.title ?? "")
+                .toLowerCase()
+                .includes(keyword) ||
+              String(b.content ?? "")
+                .toLowerCase()
+                .includes(keyword),
+          )
+        : raw;
 
-    /**
-     * [ADMIN] Update a blog post
-     * PUT /api/v1/blogs/{id}
-     */
-    updateBlog: async (id: number, payload: CreateBlogPayload): Promise<BlogItem> => {
-        const res = await api.put(`/api/v1/blogs/${id}`, payload);
-        return res?.data ?? res;
-    },
+      const start = page * size;
+      return {
+        content: filtered.slice(start, start + size),
+        totalElements: filtered.length,
+        totalPages: Math.max(1, Math.ceil(filtered.length / size)),
+        size,
+        number: page,
+        first: page === 0,
+        last: start + size >= filtered.length,
+      };
+    }
 
-    /**
-     * [ADMIN] Delete a blog post
-     * DELETE /api/v1/blogs/{id}
-     */
-    deleteBlog: async (id: number): Promise<void> => {
-        await api.delete(`/api/v1/blogs/${id}`);
-    },
+    return {
+      content: raw?.content ?? raw?.items ?? [],
+      totalElements: raw?.totalElements ?? 0,
+      totalPages: raw?.totalPages ?? 1,
+      size: raw?.size ?? 20,
+      number: raw?.number ?? 0,
+      first: raw?.first ?? true,
+      last: raw?.last ?? true,
+    };
+  },
+
+  /**
+   * Get blog by ID
+   * GET /api/v1/blogs/{id}
+   */
+  getBlogById: async (id: number | string): Promise<BlogItem> => {
+    const res = await api.get(`/api/v1/blogs/${id}`);
+    return res?.data ?? res;
+  },
+
+  /**
+   * [ADMIN] Create a new blog post
+   * POST /api/v1/blogs
+   */
+  createBlog: async (payload: CreateBlogPayload): Promise<BlogItem> => {
+    const res = await api.post("/api/v1/blogs", payload);
+    return res?.data ?? res;
+  },
+
+  /**
+   * [ADMIN] Update a blog post
+   * PUT /api/v1/blogs/{id}
+   */
+  updateBlog: async (
+    id: number,
+    payload: CreateBlogPayload,
+  ): Promise<BlogItem> => {
+    const res = await api.put(`/api/v1/blogs/${id}`, payload);
+    return res?.data ?? res;
+  },
+
+  /**
+   * [ADMIN] Delete a blog post
+   * DELETE /api/v1/blogs/{id}
+   */
+  deleteBlog: async (id: number): Promise<void> => {
+    await api.delete(`/api/v1/blogs/${id}`);
+  },
 };
 
 export default blogApi;
