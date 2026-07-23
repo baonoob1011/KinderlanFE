@@ -53,7 +53,39 @@ export default function InventoryManagementPage() {
     const [page, setPage] = useState(1);
     const PAGE_SIZE = 10;
 
-    const storeId = adminUser?.storeId ?? localStorage.getItem('storeId') ?? '';
+    // storeId chỉ được ghi vào localStorage ĐÚNG MỘT LẦN lúc đăng nhập (AdminLogin /
+    // LoginPage gọi GET /api/v1/stores/me). Nếu lúc đó tài khoản chưa được gán cửa
+    // hàng thì giá trị này rỗng suốt cả phiên — admin gán xong manager vẫn phải đăng
+    // xuất/đăng nhập lại mới dùng được. Giữ trong state + có hàm phân giải lại để
+    // trang tự sửa được mà không cần đăng nhập lại.
+    const [storeId, setStoreId] = useState<string>(
+        () => String(adminUser?.storeId ?? localStorage.getItem('storeId') ?? ''),
+    );
+    const [resolvingStore, setResolvingStore] = useState(false);
+
+    const resolveStore = async () => {
+        setResolvingStore(true);
+        try {
+            const res = await api.get('/api/v1/stores/me');
+            const store = res?.data;
+            if (store?.id) {
+                const id = String(store.id);
+                localStorage.setItem('storeId', id);
+                setStoreId(id);
+                return id;
+            }
+        } catch {
+            // 404 STORE_NOT_FOUND = tài khoản chưa được gán cửa hàng -> giữ banner cảnh báo.
+        } finally {
+            setResolvingStore(false);
+        }
+        return '';
+    };
+
+    // Chưa có storeId thì thử phân giải ngay khi vào trang.
+    useEffect(() => {
+        if (!storeId) resolveStore();
+    }, []);
 
     const fetchInventory = async () => {
         if (!storeId) return;
@@ -314,11 +346,30 @@ export default function InventoryManagementPage() {
 
                 {/* StoreId warning */}
                 {!storeId && (
-                    <div className="flex items-center gap-3 bg-yellow-50 border border-yellow-300 rounded-xl p-4">
-                        <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0" />
-                        <p className="text-sm text-yellow-800 font-medium flex-1">
-                            Không tìm thấy cửa hàng được gán cho tài khoản này. Vui lòng liên hệ admin.
-                        </p>
+                    <div className="flex items-start gap-3 bg-yellow-50 border border-yellow-300 rounded-xl p-4">
+                        <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                        <div className="text-sm text-yellow-800 flex-1">
+                            <p className="font-medium">
+                                Tài khoản này chưa được gán cửa hàng nên không có dữ liệu tồn kho.
+                            </p>
+                            <p className="mt-1 text-yellow-700">
+                                Nhờ admin vào <strong>Quản lý Cửa hàng</strong> và điền email
+                                {adminUser?.email ? <> <strong>{adminUser.email}</strong></> : null} vào
+                                ô "Email quản lý" của chi nhánh tương ứng, rồi bấm "Thử lại".
+                            </p>
+                        </div>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={resolveStore}
+                            disabled={resolvingStore}
+                            className="shrink-0"
+                        >
+                            {resolvingStore
+                                ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                                : <RefreshCw className="w-4 h-4 mr-1.5" />}
+                            Thử lại
+                        </Button>
                     </div>
                 )}
 
@@ -381,9 +432,14 @@ export default function InventoryManagementPage() {
                                             )}
                                         </CardTitle>
                                         <CardDescription>
-                                            {lastUpdated
-                                                ? `Cập nhật lúc ${lastUpdated.toLocaleTimeString('vi-VN')}`
-                                                : 'Đang tải...'}
+                                            {/* Không có store thì fetchInventory return sớm -> lastUpdated
+                                                mãi mãi null, trước đây hiện "Đang tải..." vĩnh viễn dù
+                                                chẳng có request nào đang chạy. */}
+                                            {!storeId
+                                                ? 'Chưa gán cửa hàng'
+                                                : lastUpdated
+                                                    ? `Cập nhật lúc ${lastUpdated.toLocaleTimeString('vi-VN')}`
+                                                    : loading ? 'Đang tải...' : '—'}
                                         </CardDescription>
                                     </div>
                                     <div className="relative w-full sm:w-64">
@@ -420,9 +476,11 @@ export default function InventoryManagementPage() {
                                                 <tr>
                                                     <td colSpan={COLUMN_COUNT} className="py-16 text-center text-gray-400">
                                                         <Package className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                                                        {items.length === 0
-                                                            ? 'Chưa có dữ liệu tồn kho.'
-                                                            : 'Không tìm thấy kết quả.'}
+                                                        {!storeId
+                                                            ? 'Chưa gán cửa hàng cho tài khoản này — xem cảnh báo phía trên.'
+                                                            : items.length === 0
+                                                                ? 'Chưa có dữ liệu tồn kho.'
+                                                                : 'Không tìm thấy kết quả.'}
                                                     </td>
                                                 </tr>
                                             )}

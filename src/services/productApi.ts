@@ -14,7 +14,13 @@ export interface Product {
     brandName: string;
     active?: boolean;
     promotion?: {
+        promotionId?: number;
+        code?: string;
+        title?: string;
         discountPercent: number;
+        /** Khoảng hiệu lực — dùng để lọc khuyến mãi đang chạy (DB không có cột status). */
+        startDate?: string;
+        endDate?: string;
     };
 }
 

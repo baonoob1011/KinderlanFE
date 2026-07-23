@@ -49,7 +49,7 @@ import {
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { cn } from "../ui/utils";
-import { products } from "../../data/products";
+import { productApi, Product as ApiProduct } from "../../services/productApi";
 import {
   promotionApi,
   Promotion as ApiPromotion,
@@ -138,6 +138,17 @@ export default function PromotionManagement() {
   const [assignSearch, setAssignSearch] = useState("");
   const [assigning, setAssigning] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
+
+  // Danh sách sản phẩm THẬT từ API. Trước đây modal gán dùng mock `data/products`
+  // nên id gửi lên backend không tồn tại -> findAllById bỏ qua, không sản phẩm nào
+  // được gán khuyến mãi.
+  const [apiProducts, setApiProducts] = useState<ApiProduct[]>([]);
+  useEffect(() => {
+    productApi
+      .getAll()
+      .then(setApiProducts)
+      .catch((err) => console.error("Không tải được danh sách sản phẩm:", err));
+  }, []);
 
   const openAssignDialog = (promo: Promotion) => {
     setAssignTarget(promo);
@@ -971,10 +982,12 @@ export default function PromotionManagement() {
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-2">
-                {products
+                {apiProducts
                   .filter((p) => p.name.toLowerCase().includes(assignSearch.toLowerCase()))
-                  .map((p, idx) => {
-                    const pid = idx + 1;
+                  .map((p) => {
+                    // PHẢI dùng p.id thật. Dùng chỉ số trong mảng (idx + 1) khiến id
+                    // đổi theo bộ lọc tìm kiếm và không khớp id trong DB.
+                    const pid = p.id;
                     const checked = selectedProductIds.has(pid);
                     return (
                       <label key={p.id}
@@ -985,7 +998,7 @@ export default function PromotionManagement() {
                           className="w-4 h-4 accent-blue-600" />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-[#2C2C2C] truncate">{p.name}</p>
-                          <p className="text-xs text-gray-500">{p.price?.toLocaleString("vi-VN")}₫</p>
+                          <p className="text-xs text-gray-500">{p.minPrice?.toLocaleString("vi-VN")}₫</p>
                         </div>
                       </label>
                     );

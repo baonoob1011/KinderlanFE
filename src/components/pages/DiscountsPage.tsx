@@ -4,6 +4,31 @@ import { Percent, TrendingDown } from "lucide-react";
 import Pagination from "../common/Pagination";
 import api from "../../services/api";
 
+interface ProductPromotion {
+  promotionId?: number;
+  code?: string;
+  title?: string;
+  discountPercent?: number | string;
+  startDate?: string;
+  endDate?: string;
+}
+
+/** Khuyến mãi còn hiệu lực: now nằm trong [startDate, endDate] và có % giảm > 0. */
+function isPromotionActive(promotion?: ProductPromotion | null): boolean {
+  if (!promotion) return false;
+  if (!(Number(promotion.discountPercent) > 0)) return false;
+
+  const now = Date.now();
+  // Backend trả LocalDateTime không kèm timezone -> so sánh theo giờ local của trình duyệt.
+  // Thiếu ngày thì coi như không giới hạn ở đầu đó (khuyến mãi vô thời hạn).
+  const start = promotion.startDate ? new Date(promotion.startDate).getTime() : null;
+  const end = promotion.endDate ? new Date(promotion.endDate).getTime() : null;
+
+  if (start !== null && !Number.isNaN(start) && now < start) return false;
+  if (end !== null && !Number.isNaN(end) && now > end) return false;
+  return true;
+}
+
 export default function DiscountsPage() {
 
   const [products, setProducts] = React.useState([]);
@@ -16,13 +41,22 @@ export default function DiscountsPage() {
       try {
         setLoading(true);
 
-        const response = await api.get("/api/v1/products", { params: { page: 0, size: 100 } });
+        // api.get chỉ nhận endpoint — tham số phải nằm trong query string.
+        // Trước đây truyền qua đối số thứ 2 ({ params: ... }) nên bị bỏ qua hoàn toàn.
+        const response = await api.get("/api/v1/products?page=0&size=1000");
         const data = response.data;
 
         const productsData = Array.isArray(data) ? data : data.content || data.data?.content || data.data || [];
 
+        console.log("PROMOTION RESPONSE", response);
+        console.log("PROMOTION COUNT", productsData.filter((p) => p.promotion).length);
+
         const mappedProducts = productsData.map((item) => {
-          const discount = item.promotion?.discountPercent || 0;
+          // Chỉ tính giảm giá khi khuyến mãi ĐANG chạy (now nằm trong start..end).
+          // DB không có cột status — hiệu lực hoàn toàn do khoảng ngày quyết định.
+          const discount = isPromotionActive(item.promotion)
+            ? Number(item.promotion?.discountPercent) || 0
+            : 0;
 
           const originalPrice = item.minPrice;
           const price =

@@ -137,9 +137,9 @@ export const promotionApi = {
      * GET /api/v1/promotions/{id}
      */
     getPromotionById: async (id: number): Promise<Promotion> => {
-        const response = await fetch(`${API_BASE_URL}/api/v1/promotions/${id}`, {
+        const response = await authenticatedFetch(`${API_BASE_URL}/api/v1/promotions/${id}`, {
             method: 'GET',
-            headers: getAuthHeaders(),
+            headers: { 'Content-Type': 'application/json', Accept: '*/*' },
         });
         if (!response.ok) {
             const text = await response.text();
