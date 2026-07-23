@@ -69,6 +69,32 @@ export const imageApi = {
     },
 
     /**
+     * GET /api/v1/images?entityType=...&entityId=...
+     * Tất cả ảnh gắn với 1 đối tượng, kèm presigned URL.
+     *
+     * Trả [] thay vì ném lỗi khi không đọc được (khách chưa đăng nhập sẽ nhận 401 vì
+     * gateway không mở public GET cho /api/v1/images) — ảnh bìa chỉ là trang trí,
+     * không đáng để làm hỏng cả trang.
+     */
+    listByEntity: async (
+        entityType: ImageEntityType,
+        entityId: number,
+    ): Promise<ImageUploadResponse[]> => {
+        if (!entityId) return [];
+        try {
+            const response = await authenticatedFetch(
+                `${API_BASE_URL}/api/v1/images?entityType=${entityType}&entityId=${entityId}`,
+                { method: 'GET', headers: { Accept: '*/*' } },
+            );
+            if (!response.ok) return [];
+            const json = await response.json();
+            return Array.isArray(json?.data) ? (json.data as ImageUploadResponse[]) : [];
+        } catch {
+            return [];
+        }
+    },
+
+    /**
      * DELETE /api/v1/images/{id}
      * Delete an image from S3.
      */

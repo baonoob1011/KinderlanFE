@@ -10,6 +10,7 @@
 // mọi response đều đi qua `toBlogItem()` để chuẩn hoá về một shape duy nhất.
 
 import api from "./api";
+import { imageApi } from "./imageApi";
 
 // --- Types ---
 
@@ -101,6 +102,42 @@ const normalizeBlogs = (res: any): BlogItem[] => {
   return arr.map(toBlogItem);
 };
 
+/**
+ * Gắn ảnh bìa vào các bài viết.
+ *
+ * BlogResponse của backend KHÔNG có field imageUrl (khác ProductResponse), nên ảnh
+ * phải đọc riêng từ bảng images qua GET /api/v1/images?entityType=BLOG&entityId={id}.
+ * Mỗi bài 1 request -> chỉ gọi cho các bài đang hiển thị, và lỗi thì bỏ qua.
+ */
+const attachCovers = async (items: BlogItem[]): Promise<BlogItem[]> => {
+  const covers = await Promise.all(
+    items.map((b) => imageApi.listByEntity("BLOG", b.blogId)),
+  );
+  return items.map((b, i) => ({ ...b, imageUrl: covers[i][0]?.url ?? "" }));
+};
+
+/** Xoá toàn bộ ảnh bìa của 1 blog. */
+export const removeBlogCover = async (blogId: number): Promise<void> => {
+  const existing = await imageApi.listByEntity("BLOG", blogId);
+  await Promise.all(
+    existing.map((img) => imageApi.delete(img.id).catch(() => undefined)),
+  );
+};
+
+/** Upload ảnh bìa mới cho blog, xoá ảnh cũ để mỗi bài chỉ giữ 1 ảnh. */
+export const uploadBlogCover = async (
+  blogId: number,
+  file: File,
+): Promise<string> => {
+  const existing = await imageApi.listByEntity("BLOG", blogId);
+  const uploaded = await imageApi.upload(file, "BLOG", blogId);
+  // Xoá sau khi upload thành công — nếu upload lỗi thì ảnh cũ vẫn còn nguyên.
+  await Promise.all(
+    existing.map((img) => imageApi.delete(img.id).catch(() => undefined)),
+  );
+  return uploaded.url;
+};
+
 // --- API ---
 
 export const blogApi = {
@@ -112,7 +149,7 @@ export const blogApi = {
     // Backend chưa hỗ trợ phân trang cho endpoint này -> cắt trang ở client.
     const all = normalizeBlogs(await api.get(`/api/v1/blogs`));
     const start = page * size;
-    return all.slice(start, start + size);
+    return attachCovers(all.slice(start, start + size));
   },
 
   /**
@@ -174,7 +211,7 @@ export const blogApi = {
     const safeStart = safePage * size;
 
     return {
-      content: filtered.slice(safeStart, safeStart + size),
+      content: await attachCovers(filtered.slice(safeStart, safeStart + size)),
       totalElements: filtered.length,
       totalPages,
       size,
@@ -191,7 +228,8 @@ export const blogApi = {
    * GET /api/v1/blogs/{id}
    */
   getBlogById: async (id: number | string): Promise<BlogItem> => {
-    return toBlogItem(unwrap(await api.get(`/api/v1/blogs/${id}`)));
+    const blog = toBlogItem(unwrap(await api.get(`/api/v1/blogs/${id}`)));
+    return (await attachCovers([blog]))[0];
   },
 
   /**

@@ -11,9 +11,8 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { toast } from "sonner";
-import { blogApi, BlogItem, CreateBlogPayload } from "../../services/blogApi";
+import { blogApi, uploadBlogCover, removeBlogCover, BlogItem, CreateBlogPayload } from "../../services/blogApi";
 import { blogCategoryApi, BlogCategory } from "../../services/blogCategoryApi";
-import { imageApi } from "../../services/imageApi";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB (matches backend config)
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
@@ -193,35 +192,39 @@ export default function AdminBlogManagement() {
 
         setIsSaving(true);
         try {
-            // Upload image file if selected
-            let finalImageUrl = formData.imageUrl;
-            if (imageFile) {
+            const payload: CreateBlogPayload = {
+                title: formData.title.trim(),
+                content: formData.content.trim(),
+                categoryId: Number(formData.categoryId),
+                status: formData.status,
+            };
+
+            // 1. Lưu bài trước để có id thật.
+            //    Trước đây ảnh được upload TRƯỚC với entityId = 0 khi tạo bài mới, nên
+            //    ảnh không bao giờ gắn được vào bài -> mở lại là mất ảnh.
+            const saved = editingPost
+                ? await blogApi.updateBlog(editingPost.blogId, payload)
+                : await blogApi.createBlog(payload);
+
+            // 2. Upload ảnh bìa với id thật của bài, hoặc xoá nếu người dùng bấm ✕.
+            const coverRemoved = editingPost && !imageFile && !imagePreview && !!editingPost.imageUrl;
+            if (imageFile || coverRemoved) {
                 setUploadingImage(true);
                 try {
-                    // Use editingPost id if editing, otherwise use 0 as placeholder
-                    const entityId = editingPost?.blogId ?? 0;
-                    const result = await imageApi.upload(imageFile, 'BLOG', entityId);
-                    finalImageUrl = result.key; // Store S3 key (backend resolves to presigned URL)
+                    if (imageFile) {
+                        await uploadBlogCover(saved.blogId, imageFile);
+                    } else {
+                        await removeBlogCover(saved.blogId);
+                    }
+                } catch (imgErr) {
+                    // Bài đã lưu xong — báo riêng lỗi ảnh thay vì nuốt mất cả thao tác.
+                    toast.error(imgErr instanceof Error ? imgErr.message : "Tải ảnh bìa thất bại.");
                 } finally {
                     setUploadingImage(false);
                 }
             }
 
-            const payload: CreateBlogPayload = {
-                title: formData.title.trim(),
-                content: formData.content.trim(),
-                categoryId: Number(formData.categoryId),
-                imageUrl: finalImageUrl || undefined,
-                status: formData.status,
-            };
-
-            if (editingPost) {
-                await blogApi.updateBlog(editingPost.blogId, payload);
-                toast.success("Cập nhật bài viết thành công!");
-            } else {
-                await blogApi.createBlog(payload);
-                toast.success("Tạo bài viết thành công!");
-            }
+            toast.success(editingPost ? "Cập nhật bài viết thành công!" : "Tạo bài viết thành công!");
             handleBack();
             await fetchPosts(0);
         } catch (err) {
