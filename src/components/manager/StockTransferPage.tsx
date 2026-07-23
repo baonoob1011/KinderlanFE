@@ -37,6 +37,21 @@ type Transfer = {
     createdBy: string;
 };
 
+/**
+ * Chi nhánh có thể làm nguồn chuyển kho hay không.
+ *
+ * KHÔNG dò chuỗi tiếng Việt ("hết") trên availabilityStatus: API trả về mã enum
+ * (IN_STOCK / LOW_STOCK / OUT_OF_STOCK), nên "OUT_OF_STOCK" không chứa "hết" và mọi
+ * chi nhánh hết hàng đều lọt qua bộ lọc. Chọn phải một chi nhánh như vậy thì
+ * quantity = 0 -> "Tối đa: 0" -> ô nhập bị kẹp về 0, không gõ được số nào.
+ * quantity là con số thật, dùng nó làm căn cứ; status chỉ để hiển thị.
+ */
+const hasStock = (s: StoreAvailability): boolean => {
+    if (typeof s.quantity === 'number') return s.quantity > 0;
+    const status = (s.availabilityStatus || '').toLowerCase();
+    return !status.includes('out_of_stock') && !status.includes('hết');
+};
+
 export default function StockTransferPage() {
     const { adminUser } = useAdmin();
     const storeId = adminUser?.storeId ?? localStorage.getItem('storeId') ?? '';
@@ -120,7 +135,7 @@ export default function StockTransferPage() {
             const res = await inventoryApi.getStoreAvailability(id);
             setSearchedSkuId(id);
             const available = (res.data || []).filter(
-                (s) => !s.availabilityStatus.toLowerCase().includes('hết') && String(s.storeId) !== String(storeId)
+                (s) => hasStock(s) && String(s.storeId) !== String(storeId)
             );
             setStoreAvailability(available);
             if (available.length === 0) setSearchError('Không có chi nhánh nào còn hàng cho SKU này.');
@@ -563,9 +578,20 @@ function EmptyState({ text }: { text: string }) {
     );
 }
 
+// API trả mã enum (IN_STOCK/LOW_STOCK/OUT_OF_STOCK); trước đây chỉ dò tiếng Việt nên
+// "OUT_OF_STOCK" rơi vào nhánh mặc định -> hết hàng mà hiện badge XANH LÁ.
 function AvailBadge({ status }: { status: string }) {
-    const s = status.toLowerCase();
-    if (s.includes('ít') || s.includes('thấp') || s.includes('sắp'))
-        return <Badge className="bg-yellow-100 text-yellow-700 border-yellow-200 text-xs">{status}</Badge>;
-    return <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">{status}</Badge>;
+    const s = (status || '').toLowerCase();
+    const isOut = s.includes('out_of_stock') || s.includes('hết');
+    const isLow =
+        s.includes('low_stock') || s.includes('ít') || s.includes('thấp') || s.includes('sắp');
+
+    const label = isOut ? 'Hết hàng' : isLow ? 'Còn ít' : 'Còn hàng';
+    const tone = isOut
+        ? 'bg-red-100 text-red-700 border-red-200'
+        : isLow
+            ? 'bg-yellow-100 text-yellow-700 border-yellow-200'
+            : 'bg-green-100 text-green-700 border-green-200';
+
+    return <Badge className={`${tone} text-xs`}>{label}</Badge>;
 }

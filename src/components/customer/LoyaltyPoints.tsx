@@ -37,6 +37,7 @@ export default function LoyaltyPoints() {
   // Real API state
   const [realPoints, setRealPoints] = useState<number | null>(null);
   const [realLifetimePoints, setRealLifetimePoints] = useState<number | null>(null);
+  const [pointsExpiresAt, setPointsExpiresAt] = useState<string | null>(null);
   const [pointsLoading, setPointsLoading] = useState(true);
   const [pointsError, setPointsError] = useState<string | null>(null);
 
@@ -52,6 +53,7 @@ export default function LoyaltyPoints() {
         const data = await loyaltyApi.getMyPoints();
         setRealPoints(data.totalPoints ?? 0);
         setRealLifetimePoints(data.lifetimePoints ?? 0);
+        setPointsExpiresAt(data.expiresAt ?? null);
       } catch (err: unknown) {
         setPointsError(err instanceof Error ? err.message : 'Không thể tải điểm tích lũy.');
         // Fall back to user context points
@@ -65,16 +67,37 @@ export default function LoyaltyPoints() {
 
   // Use real points if available, fallback to context
   const currentPoints = realPoints ?? user?.points ?? 0;
+  const lifetimePoints = realLifetimePoints ?? currentPoints;
 
-  // Mock/derived data
+  // Hạng thành viên suy ra từ ĐIỂM TÍCH LUỸ THẬT (lifetimePoints).
+  // Trước đây lấy user.membershipTier — trường này chỉ tồn tại trong dữ liệu demo,
+  // luồng đăng nhập thật không bao giờ set nên mọi tài khoản đều rơi về 'bronze'.
+  // Backend tích 1 điểm cho mỗi 1₫ chi trả (LoyaltyService.EARN_RATE = 1).
+  const TIER_THRESHOLDS = [
+    { key: 'bronze', min: 0 },
+    { key: 'silver', min: 5_000_000 },
+    { key: 'gold', min: 20_000_000 },
+    { key: 'platinum', min: 50_000_000 },
+  ] as const;
+
+  const tierIndex = TIER_THRESHOLDS.reduce(
+    (acc, tier, index) => (lifetimePoints >= tier.min ? index : acc),
+    0,
+  );
+  const currentTier = TIER_THRESHOLDS[tierIndex].key;
+  const nextTierEntry = TIER_THRESHOLDS[tierIndex + 1];
+
   const customerPoints = {
     current: currentPoints,
-    lifetime: realLifetimePoints ?? currentPoints,
-    expiringSoon: 200,
-    expiryDate: '2026-03-31',
-    tier: user?.membershipTier || 'bronze',
-    nextTier: user?.membershipTier === 'gold' ? 'platinum' : user?.membershipTier === 'silver' ? 'gold' : 'silver',
-    pointsToNextTier: 500,
+    lifetime: lifetimePoints,
+    // null = chưa tích điểm lần nào -> không hiển thị dòng hết hạn (trước đây
+    // luôn hiện cứng "200 điểm hết hạn 2026-03-31" cho cả tài khoản 0 điểm).
+    expiryDate: pointsExpiresAt
+      ? new Date(pointsExpiresAt).toLocaleDateString('vi-VN')
+      : null,
+    tier: currentTier,
+    nextTier: nextTierEntry?.key ?? currentTier,
+    pointsToNextTier: nextTierEntry ? Math.max(nextTierEntry.min - lifetimePoints, 0) : 0,
   };
 
   const tierBenefits = {
@@ -157,7 +180,12 @@ export default function LoyaltyPoints() {
   }, []);
 
 
-  const tierProgress = (customerPoints.current / (customerPoints.current + customerPoints.pointsToNextTier)) * 100;
+  // Tiến độ tính trên ĐIỂM TÍCH LUỸ (không phải điểm khả dụng — tiêu điểm không
+  // làm tụt hạng). Hạng cao nhất thì coi như đã đầy thay vì chia cho 0.
+  const isMaxTier = customerPoints.pointsToNextTier === 0;
+  const tierProgress = isMaxTier
+    ? 100
+    : (customerPoints.lifetime / (customerPoints.lifetime + customerPoints.pointsToNextTier)) * 100;
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -218,10 +246,17 @@ export default function LoyaltyPoints() {
                   <span className="text-white/90">
                     Tổng điểm tích lũy: {customerPoints.lifetime.toLocaleString('vi-VN')}
                   </span>
-                  <span className="text-[#FFD700] flex items-center gap-1">
-                    <Sparkles className="w-4 h-4" />
-                    {customerPoints.expiringSoon} điểm hết hạn {customerPoints.expiryDate}
-                  </span>
+                  {!pointsLoading && customerPoints.current === 0 && (
+                    <span className="text-white/80 text-xs">
+                      Điểm được cộng khi đơn hàng hoàn tất
+                    </span>
+                  )}
+                  {customerPoints.expiryDate && customerPoints.current > 0 && (
+                    <span className="text-[#FFD700] flex items-center gap-1">
+                      <Sparkles className="w-4 h-4" />
+                      Điểm hết hạn {customerPoints.expiryDate}
+                    </span>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -245,19 +280,27 @@ export default function LoyaltyPoints() {
                         {tierBenefits[customerPoints.tier as keyof typeof tierBenefits].name}
                       </span>
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm text-gray-600">Cần thêm</p>
-                      <p className="font-bold text-[#AF140B]">
-                        {customerPoints.pointsToNextTier} điểm
-                      </p>
-                    </div>
+                    {!isMaxTier && (
+                      <div className="text-right">
+                        <p className="text-sm text-gray-600">Cần thêm</p>
+                        <p className="font-bold text-[#AF140B]">
+                          {customerPoints.pointsToNextTier.toLocaleString('vi-VN')} điểm
+                        </p>
+                      </div>
+                    )}
                   </div>
                   <Progress value={tierProgress} className="h-3" />
                   <p className="text-sm text-gray-600 mt-2">
-                    để lên hạng{' '}
-                    <span className="font-bold">
-                      {tierBenefits[customerPoints.nextTier as keyof typeof tierBenefits].name}
-                    </span>
+                    {isMaxTier ? (
+                      'Bạn đang ở hạng cao nhất'
+                    ) : (
+                      <>
+                        để lên hạng{' '}
+                        <span className="font-bold">
+                          {tierBenefits[customerPoints.nextTier as keyof typeof tierBenefits].name}
+                        </span>
+                      </>
+                    )}
                   </p>
                 </div>
 

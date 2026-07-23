@@ -11,6 +11,7 @@ import {
     Clock, CheckCircle, XCircle, Truck, Package, CreditCard,
     Loader2, Eye, ChevronLeft, ChevronRight, User, MapPin, ChevronDown as ChevronDownIcon,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import api from '../../services/api';
 import { inventoryApi, type InventoryItem } from '../../services/inventoryApi';
 import { AlertTriangle } from 'lucide-react';
@@ -193,9 +194,21 @@ export default function ManagerOrderPage() {
                 setSelectedOrder((prev) => prev ? { ...prev, orderStatus: 'DELIVERED' as OrderStatus } : null);
             }
             setUpdateSuccess(true);
+            toast.success(`Đơn #${orderId} đã chuyển sang Đang giao.`);
             setTimeout(() => setUpdateSuccess(false), 2000);
         } catch (err: unknown) {
-            setUpdateError(err instanceof Error ? err.message : 'Cập nhật thất bại.');
+            const raw = err instanceof Error ? err.message : '';
+            // PATCH /api/v1/orders/{id} -> OrderService.updateStatus() chặn thẳng:
+            //   if (!"ROLE_ADMIN".equals(role)) throw UNAUTHORIZED_ACCESS  (HTTP 403)
+            // Tài khoản MANAGER luôn bị 403 ở đây. Dịch ra tiếng người thay vì để
+            // nguyên "HTTP error! status: 403" mà người dùng không hiểu vì sao.
+            const message = raw.includes('403')
+                ? 'Chỉ tài khoản ADMIN mới đổi được trạng thái đơn hàng. Backend chặn ROLE_MANAGER ở endpoint này.'
+                : raw || 'Cập nhật thất bại.';
+            setUpdateError(message);
+            // Thông báo cũ chỉ hiện ở ĐẦU trang; đang cuộn giữa bảng thì bấm xong
+            // trông như không có gì xảy ra. Toast hiện bất kể vị trí cuộn.
+            toast.error(message);
         } finally {
             setUpdatingId(null);
         }

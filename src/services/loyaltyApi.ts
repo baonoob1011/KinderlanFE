@@ -5,6 +5,8 @@ const API_BASE_URL = "";
 export interface LoyaltyPoints {
     totalPoints: number;
     lifetimePoints: number;
+    /** ISO datetime — ngày số điểm hiện tại hết hạn. null = chưa từng tích điểm. */
+    expiresAt?: string | null;
 }
 
 export interface LoyaltyResponse {
