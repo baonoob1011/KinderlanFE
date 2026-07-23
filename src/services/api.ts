@@ -1,8 +1,7 @@
 // API Service utility for making HTTP requests with automatic JWT refresh
 // Local dev: Vite proxy forwards /api/* → localhost:8080
 // Production: vercel.json rewrites forward /api/* → EC2 backend
-const API_BASE_URL = "";
-
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 // Track refresh token requests to avoid multiple concurrent refreshes
 let isRefreshing = false;
 let failedQueue: Array<{
@@ -25,17 +24,17 @@ const processQueue = (error?: any, token?: string) => {
 
 // Refresh JWT access token using refresh token
 const refreshAccessToken = async (): Promise<string> => {
-  const refreshToken = localStorage.getItem('refreshToken');
+  const refreshToken = localStorage.getItem("refreshToken");
 
   if (!refreshToken) {
-    throw new Error('No refresh token available');
+    throw new Error("No refresh token available");
   }
 
   try {
     const response = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         refreshToken: refreshToken,
@@ -49,71 +48,86 @@ const refreshAccessToken = async (): Promise<string> => {
     const data = await response.json();
 
     if (!data?.data?.accessToken) {
-      throw new Error('Invalid refresh token response');
+      throw new Error("Invalid refresh token response");
     }
 
     const { accessToken, refreshToken: newRefreshToken } = data.data;
 
     // Update tokens in localStorage
-    localStorage.setItem('accessToken', accessToken);
+    localStorage.setItem("accessToken", accessToken);
     if (newRefreshToken) {
-      localStorage.setItem('refreshToken', newRefreshToken);
+      localStorage.setItem("refreshToken", newRefreshToken);
     }
 
     return accessToken;
   } catch (error) {
     // Clear tokens on refresh failure
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("refreshToken");
 
     // Redirect to login page
-    window.location.href = '/login';
+    window.location.href = "/login";
     throw error;
   }
 };
 
 // Enhanced fetch with automatic token refresh
-export const authenticatedFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
+export const authenticatedFetch = async (
+  url: string,
+  options: RequestInit = {},
+): Promise<Response> => {
   // Endpoints that NEVER need auth (regardless of method)
   const alwaysPublicEndpoints = [
-    '/api/v1/auth/login',
-    '/api/v1/auth/login/google',
-    '/api/v1/auth/register',
-    '/api/v1/auth/refresh',
-    '/api/v1/auth/forgot-password',
-    '/api/v1/auth/reset-password',
+    "/api/v1/auth/login",
+    "/api/v1/auth/login/google",
+    "/api/v1/auth/register",
+    "/api/v1/auth/refresh",
+    "/api/v1/auth/forgot-password",
+    "/api/v1/auth/reset-password",
   ];
 
   // Endpoints that are public only for GET requests
   const getOnlyPublicEndpoints = [
-    '/api/v1/reviews/sku/',
-    '/api/v1/reviews/product/',
+    "/api/v1/reviews/sku/",
+    "/api/v1/reviews/product/",
   ];
 
-  const method = (options.method || 'GET').toUpperCase();
-  const isAlwaysPublic = alwaysPublicEndpoints.some(endpoint => url.includes(endpoint));
-  const isGetPublic = method === 'GET' && getOnlyPublicEndpoints.some(endpoint => url.includes(endpoint));
+  const method = (options.method || "GET").toUpperCase();
+  const isAlwaysPublic = alwaysPublicEndpoints.some((endpoint) =>
+    url.includes(endpoint),
+  );
+  const isGetPublic =
+    method === "GET" &&
+    getOnlyPublicEndpoints.some((endpoint) => url.includes(endpoint));
   const isPublicEndpoint = isAlwaysPublic || isGetPublic;
 
   // Only add auth headers for protected endpoints
   if (!isPublicEndpoint) {
-    const accessToken = localStorage.getItem('accessToken');
+    const accessToken = localStorage.getItem("accessToken");
 
     // Add Authorization header if token exists
     if (accessToken) {
       options.headers = {
         ...options.headers,
-        'Authorization': `Bearer ${accessToken}`,
+        Authorization: `Bearer ${accessToken}`,
       };
     }
-    console.log('[AUTH DEBUG]', options.method || 'GET', url, 'token?', !!accessToken, 'token prefix:', accessToken?.substring(0, 20));
+    console.log(
+      "[AUTH DEBUG]",
+      options.method || "GET",
+      url,
+      "token?",
+      !!accessToken,
+      "token prefix:",
+      accessToken?.substring(0, 20),
+    );
   }
 
   let response = await fetch(url, options);
 
   // Handle token expiration (only for protected endpoints)
   if (response.status === 401 && !isPublicEndpoint) {
-    const accessToken = localStorage.getItem('accessToken');
+    const accessToken = localStorage.getItem("accessToken");
 
     if (accessToken) {
       // If already refreshing, queue this request
@@ -123,7 +137,7 @@ export const authenticatedFetch = async (url: string, options: RequestInit = {})
         }).then((token) => {
           options.headers = {
             ...options.headers,
-            'Authorization': `Bearer ${token}`,
+            Authorization: `Bearer ${token}`,
           };
           return fetch(url, options);
         });
@@ -139,7 +153,7 @@ export const authenticatedFetch = async (url: string, options: RequestInit = {})
         // Retry original request with new token
         options.headers = {
           ...options.headers,
-          'Authorization': `Bearer ${newToken}`,
+          Authorization: `Bearer ${newToken}`,
         };
         response = await fetch(url, options);
       } catch (refreshError) {
@@ -189,24 +203,24 @@ export const api = {
    */
   loginWithGoogle: async (credential: string) => {
     try {
-      console.log('Sending to backend:', {
+      console.log("Sending to backend:", {
         url: `${API_BASE_URL}/auth/login/google`,
-        tokenLength: credential?.length || 0
+        tokenLength: credential?.length || 0,
       });
 
       const response = await fetch(`${API_BASE_URL}/api/v1/auth/login/google`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({ idToken: credential }),
       });
 
-      console.log('Backend response status:', response.status);
+      console.log("Backend response status:", response.status);
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.log('Backend error response:', errorText);
+        console.log("Backend error response:", errorText);
 
         let errorData;
         try {
@@ -215,28 +229,30 @@ export const api = {
           errorData = { message: errorText };
         }
 
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+        throw new Error(
+          errorData.message || `HTTP error! status: ${response.status}`,
+        );
       }
 
       const data = await response.json();
-      console.log('Backend success response:', data);
+      console.log("Backend success response:", data);
       return data;
     } catch (error) {
-      console.error('Google login error:', error);
+      console.error("Google login error:", error);
       throw error;
     }
   },
 
   addWishlist: async (productId: number) => {
     try {
-      console.log('Sending to wishlist productId:', productId);
+      console.log("Sending to wishlist productId:", productId);
       const token = localStorage.getItem("accessToken");
 
       if (!token) {
         throw new Error("Vui lòng đăng nhập để sử dụng tính năng này");
       }
 
-      console.log('Request body:', JSON.stringify({ productId: productId }));
+      console.log("Request body:", JSON.stringify({ productId: productId }));
 
       const response = await fetch(`${API_BASE_URL}/api/v1/wishlist/items`, {
         method: "POST",
@@ -254,7 +270,7 @@ export const api = {
         try {
           const resText = await response.text();
           if (resText) errorData = resText;
-        } catch (e) { }
+        } catch (e) {}
         throw new Error(errorData);
       }
 
@@ -272,13 +288,16 @@ export const api = {
         throw new Error("Vui lòng đăng nhập để sử dụng tính năng này");
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/v1/wishlist/items/${id}`, {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+      const response = await fetch(
+        `${API_BASE_URL}/api/v1/wishlist/items/${id}`,
+        {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
         },
-      });
+      );
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -299,7 +318,8 @@ export const api = {
         headers: { "Content-Type": "application/json" },
       });
 
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.ok)
+        throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
       console.log("GET /api/v1/cart response:", data);
       return data;
@@ -313,18 +333,21 @@ export const api = {
     try {
       console.log("POST /api/v1/cart/add", { skuId, quantity, storeId });
 
-      const response = await authenticatedFetch(`${API_BASE_URL}/api/v1/cart/add`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ skuId, quantity, storeId }),
-      });
+      const response = await authenticatedFetch(
+        `${API_BASE_URL}/api/v1/cart/add`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ skuId, quantity, storeId }),
+        },
+      );
 
       if (!response.ok) {
         let errorData = `HTTP error! status: ${response.status}`;
         try {
           const resText = await response.text();
           if (resText) errorData = resText;
-        } catch (e) { }
+        } catch (e) {}
         throw new Error(errorData);
       }
 
@@ -346,7 +369,7 @@ export const api = {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ quantity }),
-        }
+        },
       );
 
       if (!response.ok) {
@@ -354,7 +377,7 @@ export const api = {
         try {
           const resText = await response.text();
           if (resText) errorData = resText;
-        } catch (e) { }
+        } catch (e) {}
         throw new Error(errorData);
       }
 
@@ -371,12 +394,16 @@ export const api = {
     try {
       console.log(`DELETE /api/v1/cart/${cartItemId}`);
 
-      const response = await authenticatedFetch(`${API_BASE_URL}/api/v1/cart/${cartItemId}`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-      });
+      const response = await authenticatedFetch(
+        `${API_BASE_URL}/api/v1/cart/${cartItemId}`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+        },
+      );
 
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.ok)
+        throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
       console.log("DELETE /api/v1/cart response:", data);
       return data;
@@ -386,7 +413,6 @@ export const api = {
     }
   },
 
-
   /**
    * Register new user
    * @param userData - User registration data
@@ -394,9 +420,9 @@ export const api = {
   register: async (userData: any) => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/v1/auth/register`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify(userData),
       });
@@ -408,7 +434,7 @@ export const api = {
 
       return await response.json();
     } catch (error) {
-      console.error('Registration API error:', error);
+      console.error("Registration API error:", error);
       throw error;
     }
   },
@@ -427,7 +453,7 @@ export const api = {
   get: async (endpoint: string) => {
     try {
       const response = await authenticatedFetch(`${API_BASE_URL}${endpoint}`, {
-        method: 'GET',
+        method: "GET",
         headers: {
           "Content-Type": "application/json",
         },
@@ -439,7 +465,7 @@ export const api = {
 
       return await response.json();
     } catch (error) {
-      console.error('API GET error:', error);
+      console.error("API GET error:", error);
       throw error;
     }
   },
@@ -452,7 +478,7 @@ export const api = {
   post: async (endpoint: string, data: any) => {
     try {
       const response = await authenticatedFetch(`${API_BASE_URL}${endpoint}`, {
-        method: 'POST',
+        method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
@@ -461,13 +487,17 @@ export const api = {
 
       if (!response.ok) {
         const errorBody = await response.text();
-        console.error(`API POST ${endpoint} failed:`, response.status, errorBody);
+        console.error(
+          `API POST ${endpoint} failed:`,
+          response.status,
+          errorBody,
+        );
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       return await response.json();
     } catch (error) {
-      console.error('API POST error:', error);
+      console.error("API POST error:", error);
       throw error;
     }
   },
@@ -480,9 +510,9 @@ export const api = {
   put: async (endpoint: string, data: any) => {
     try {
       const response = await authenticatedFetch(`${API_BASE_URL}${endpoint}`, {
-        method: 'PUT',
+        method: "PUT",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify(data),
       });
@@ -493,7 +523,7 @@ export const api = {
 
       return await response.json();
     } catch (error) {
-      console.error('API PUT error:', error);
+      console.error("API PUT error:", error);
       throw error;
     }
   },
@@ -505,9 +535,9 @@ export const api = {
   delete: async (endpoint: string) => {
     try {
       const response = await authenticatedFetch(`${API_BASE_URL}${endpoint}`, {
-        method: 'DELETE',
+        method: "DELETE",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
       });
 
@@ -517,7 +547,7 @@ export const api = {
 
       return await response.json();
     } catch (error) {
-      console.error('API DELETE error:', error);
+      console.error("API DELETE error:", error);
       throw error;
     }
   },
@@ -530,9 +560,9 @@ export const api = {
   patch: async (endpoint: string, data: any) => {
     try {
       const response = await authenticatedFetch(`${API_BASE_URL}${endpoint}`, {
-        method: 'PATCH',
+        method: "PATCH",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify(data),
       });
@@ -542,13 +572,15 @@ export const api = {
         try {
           const errBody = await response.json();
           errorMsg = errBody?.message || errBody?.error || errorMsg;
-        } catch { /* ignore parse error */ }
+        } catch {
+          /* ignore parse error */
+        }
         throw new Error(errorMsg);
       }
 
       return await response.json();
     } catch (error) {
-      console.error('API PATCH error:', error);
+      console.error("API PATCH error:", error);
       throw error;
     }
   },
@@ -560,8 +592,8 @@ export const api = {
     try {
       let url = `${API_BASE_URL}/api/v1/inventory/availability`;
       const params = new URLSearchParams();
-      if (skuId) params.append('skuId', skuId.toString());
-      if (productId) params.append('productId', productId.toString());
+      if (skuId) params.append("skuId", skuId.toString());
+      if (productId) params.append("productId", productId.toString());
 
       const queryString = params.toString();
       if (queryString) url += `?${queryString}`;
@@ -573,7 +605,8 @@ export const api = {
         },
       });
 
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.ok)
+        throw new Error(`HTTP error! status: ${response.status}`);
       return await response.json();
     } catch (error) {
       console.error("Inventory Availability API error:", error);
@@ -589,15 +622,19 @@ export const api = {
       const token = localStorage.getItem("accessToken");
       if (!token) throw new Error("Vui lòng đăng nhập");
 
-      const response = await fetch(`${API_BASE_URL}/api/v1/address/my-addresses`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+      const response = await fetch(
+        `${API_BASE_URL}/api/v1/address/my-addresses`,
+        {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
         },
-      });
+      );
 
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.ok)
+        throw new Error(`HTTP error! status: ${response.status}`);
       return await response.json();
     } catch (error) {
       console.error("Get addresses API error:", error);
@@ -622,7 +659,11 @@ export const api = {
   /**
    * Initiate checkout for an order
    */
-  checkoutOrder: async (orderId: number, paymentMethod: string = "VNPAY", pointsToUse: number = 0) => {
+  checkoutOrder: async (
+    orderId: number,
+    paymentMethod: string = "VNPAY",
+    pointsToUse: number = 0,
+  ) => {
     try {
       const endpoint = `/api/v1/orders/${orderId}/checkout`;
       const body: any = { paymentMethod };
@@ -640,7 +681,7 @@ export const api = {
    */
   getMyOrders: async () => {
     try {
-      return await api.get('/api/v1/orders/my-orders');
+      return await api.get("/api/v1/orders/my-orders");
     } catch (error) {
       console.error("Get my orders API error:", error);
       throw error;
@@ -697,15 +738,15 @@ export const authUtils = {
    * Check if access token is expired
    */
   isTokenExpired: (): boolean => {
-    const token = localStorage.getItem('accessToken');
+    const token = localStorage.getItem("accessToken");
     if (!token) return true;
 
     try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
+      const payload = JSON.parse(atob(token.split(".")[1]));
       const currentTime = Math.floor(Date.now() / 1000);
       return payload.exp < currentTime;
     } catch (error) {
-      console.error('Error parsing token:', error);
+      console.error("Error parsing token:", error);
       return true;
     }
   },
@@ -714,8 +755,8 @@ export const authUtils = {
    * Check if user is logged in (has valid tokens)
    */
   isLoggedIn: (): boolean => {
-    const accessToken = localStorage.getItem('accessToken');
-    const refreshToken = localStorage.getItem('refreshToken');
+    const accessToken = localStorage.getItem("accessToken");
+    const refreshToken = localStorage.getItem("refreshToken");
     return !!(accessToken && refreshToken);
   },
 
@@ -723,14 +764,14 @@ export const authUtils = {
    * Get current user role from token
    */
   getUserRole: (): string | null => {
-    const token = localStorage.getItem('accessToken');
+    const token = localStorage.getItem("accessToken");
     if (!token) return null;
 
     try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
+      const payload = JSON.parse(atob(token.split(".")[1]));
       return payload.role || payload.authorities?.[0] || null;
     } catch (error) {
-      console.error('Error parsing token for role:', error);
+      console.error("Error parsing token for role:", error);
       return null;
     }
   },
@@ -739,14 +780,14 @@ export const authUtils = {
    * Get current user email from token
    */
   getUserEmail: (): string | null => {
-    const token = localStorage.getItem('accessToken');
+    const token = localStorage.getItem("accessToken");
     if (!token) return null;
 
     try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
+      const payload = JSON.parse(atob(token.split(".")[1]));
       return payload.sub || payload.email || null;
     } catch (error) {
-      console.error('Error parsing token for email:', error);
+      console.error("Error parsing token for email:", error);
       return null;
     }
   },
@@ -755,24 +796,24 @@ export const authUtils = {
    * Clear all tokens and logout
    */
   logout: (): void => {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("refreshToken");
     // Clear any other user-related data if needed
-    localStorage.removeItem('user');
+    localStorage.removeItem("user");
 
     // Redirect to login page
-    window.location.href = '/login';
+    window.location.href = "/login";
   },
 
   /**
    * Get token info for debugging
    */
   getTokenInfo: (): any => {
-    const token = localStorage.getItem('accessToken');
+    const token = localStorage.getItem("accessToken");
     if (!token) return null;
 
     try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
+      const payload = JSON.parse(atob(token.split(".")[1]));
       return {
         payload,
         isExpired: authUtils.isTokenExpired(),
@@ -780,10 +821,10 @@ export const authUtils = {
         timeUntilExpiry: payload.exp * 1000 - Date.now(),
       };
     } catch (error) {
-      console.error('Error parsing token info:', error);
+      console.error("Error parsing token info:", error);
       return null;
     }
-  }
+  },
 };
 
 export default api;
