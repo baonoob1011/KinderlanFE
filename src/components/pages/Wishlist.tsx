@@ -9,10 +9,52 @@ export default function Wishlist() {
   const { user, wishlistItems, setWishlistItems: setGlobalWishlistItems, removeWishlistItemGlobal } = useApp();
   const [wishlist, setWishlist] = useState<any[]>([]);
 
+  /**
+   * Bổ sung ảnh cho những item wishlist chưa có.
+   *
+   * GET /api/v1/wishlist trả WishlistItemResponse — DTO này KHÔNG có trường ảnh
+   * (chỉ id/productId/productName/price/addedAt), nên ảnh luôn undefined và thẻ
+   * sản phẩm hiện icon vỡ. Trang Sản phẩm lấy ảnh từ GET /api/v1/products và chạy
+   * tốt, nên lấy lại từ đúng nguồn đó: 1 request, map productId -> imageUrl.
+   *
+   * Giữ nguyên item nếu backend đã trả ảnh sẵn (khi bản sửa WishlistService được
+   * deploy thì nhánh này tự động không cần dùng tới).
+   */
+  const withProductImages = async (items: any[]): Promise<any[]> => {
+    const missing = items.some(
+      (i) => !(i.imageUrl || i.productImageUrl || i.image),
+    );
+    if (!missing) return items;
+
+    try {
+      const res = await api.get("/api/v1/products");
+      const raw = res?.data ?? res;
+      const list = Array.isArray(raw) ? raw : raw?.content ?? [];
+      const imageByProductId = new Map<number, string>();
+      for (const p of list) {
+        if (p?.id != null && p?.imageUrl) imageByProductId.set(Number(p.id), p.imageUrl);
+      }
+      return items.map((i) => {
+        if (i.imageUrl || i.productImageUrl || i.image) return i;
+        const url = imageByProductId.get(Number(i.productId ?? i.id));
+        return url ? { ...i, imageUrl: url } : i;
+      });
+    } catch {
+      // Không lấy được ảnh thì vẫn hiển thị danh sách, chỉ thiếu ảnh.
+      return items;
+    }
+  };
+
+  const applyItems = async (items: any[]) => {
+    const enriched = await withProductImages(items);
+    setWishlist(enriched);
+    setGlobalWishlistItems(enriched);
+  };
+
   const fetchWishlist = async () => {
     if (!user) {
       // Guest: use wishlist from context (backed by localStorage)
-      setWishlist(wishlistItems);
+      setWishlist(await withProductImages(wishlistItems));
       return;
     }
     try {
@@ -26,11 +68,9 @@ export default function Wishlist() {
       }
 
       if (Array.isArray(items)) {
-        setWishlist(items);
-        setGlobalWishlistItems(items);
+        await applyItems(items);
       } else if (items && Array.isArray(items.items)) {
-        setWishlist(items.items);
-        setGlobalWishlistItems(items.items);
+        await applyItems(items.items);
       } else {
         setWishlist([]);
       }
@@ -46,7 +86,13 @@ export default function Wishlist() {
   // Keep local state in sync with context for guests
   useEffect(() => {
     if (!user) {
-      setWishlist(wishlistItems);
+      // Phải enrich ở đây nữa, nếu không effect này ghi đè danh sách đã có ảnh
+      // bằng bản thô trong context -> ảnh vừa hiện lại biến mất.
+      let cancelled = false;
+      withProductImages(wishlistItems).then((items) => {
+        if (!cancelled) setWishlist(items);
+      });
+      return () => { cancelled = true; };
     }
   }, [wishlistItems, user]);
 

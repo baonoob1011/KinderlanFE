@@ -299,17 +299,27 @@ export default function CustomerProfile() {
     <div className="min-h-screen bg-slate-50 py-10">
       <div className="container mx-auto px-4 max-w-5xl">
 
+        {/* BACK */}
+        <Link to="/account" className="inline-block mb-4">
+          <Button variant="ghost">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Quay lại tài khoản
+          </Button>
+        </Link>
+
         {/* PROFILE HEADER */}
-        <Card className="mb-10 overflow-hidden border-none shadow-2xl bg-white ring-1 ring-black/5">
-          <div className="bg-gradient-to-r from-[#AF140B] via-[#D32F2F] to-[#C62828] h-32 relative">
+        <Card className="mb-8 overflow-hidden border-none shadow-2xl bg-white ring-1 ring-black/5">
+          <div className="bg-gradient-to-r from-[#AF140B] via-[#D32F2F] to-[#C62828] h-24 relative">
             <div className="absolute inset-0 bg-black/10" />
           </div>
-          <CardContent className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 -mt-12 pb-8 px-6 sm:px-8 text-center sm:text-left">
+          {/* Chỉ avatar được kéo đè lên banner; trước đây -mt-12 đặt trên cả hàng
+              nên tên, email và badge cũng bị nhấc lên chồng vào dải đỏ. */}
+          <CardContent className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6 pt-4 pb-6 px-6 sm:px-8 text-center sm:text-left">
             <UserAvatar
               src={user?.avatarUrl}
               name={profileData?.firstName || user?.username || user?.name}
               size={96}
-              className="shadow-2xl border-4 border-white"
+              className="shadow-2xl border-4 border-white -mt-16 shrink-0 mx-auto sm:mx-0"
             />
             <div className="flex-1 min-w-0">
               <h2 className="text-2xl font-black text-gray-900 tracking-tight truncate">
@@ -328,15 +338,7 @@ export default function CustomerProfile() {
           </CardContent>
         </Card>
 
-        {/* BACK */}
         <div className="mb-8">
-          <Link to="/account">
-            <Button variant="ghost" className="mb-4">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Quay lại tài khoản
-            </Button>
-          </Link>
-
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-gray-900 mb-2 tracking-tight">Thông tin tài khoản</h1>
