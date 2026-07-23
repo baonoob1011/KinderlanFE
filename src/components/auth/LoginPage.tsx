@@ -141,6 +141,13 @@ const handleResetPassword = async (e: React.FormEvent) => {
 
       toast.success("Đăng nhập thành công!");
 
+      // Phiên khách hàng cũ còn sót trong localStorage sẽ khiến trang công khai
+      // gọi /api/v1/cart và /api/v1/wishlist bằng token nhân viên (401) —
+      // đúng nguồn cơn khiến admin bấm "Trang chủ" là bị đá về /login.
+      if (["ROLE_ADMIN", "ROLE_MANAGER", "ROLE_STAFF"].includes(role)) {
+        setUser(null);
+      }
+
       if (role === "ROLE_ADMIN") {
         loginAdmin({ id: userEmail, email: userEmail, name: userEmail, role: "admin" });
         navigate("/admin/dashboard");
@@ -217,6 +224,12 @@ const handleResetPassword = async (e: React.FormEvent) => {
       localStorage.setItem("refreshToken", refreshToken);
 
       toast.success(`Chào mừng ${email}!`);
+
+      // Xem chú thích ở handleLogin: phiên khách hàng cũ phải bị xoá khi đăng
+      // nhập bằng tài khoản nhân viên.
+      if (["ROLE_ADMIN", "ROLE_MANAGER", "ROLE_STAFF"].includes(role)) {
+        setUser(null);
+      }
 
       if (role === "ROLE_ADMIN") {
         loginAdmin({ id: email, email, name: email, role: "admin" });

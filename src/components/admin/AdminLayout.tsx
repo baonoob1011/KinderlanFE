@@ -48,6 +48,7 @@ export default function AdminLayout() {
       section: 'Tài khoản',
       items: [
         { title: 'Quản lý Tài khoản', icon: Users, path: '/admin/users' },
+        { title: 'Quản lý Cửa hàng', icon: Store, path: '/admin/stores' },
       ]
     },
     {

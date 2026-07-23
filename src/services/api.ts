@@ -30,6 +30,26 @@ const processQueue = (error?: any, token?: string) => {
   failedQueue = [];
 };
 
+// Các route BẮT BUỘC phải đăng nhập. Chỉ những route này mới được phép đá về
+// /login khi phiên hỏng. Trang công khai (/, /products, /brands, /blog...) phải
+// dùng được cho cả khách lẫn người đã đăng nhập -> tuyệt đối không redirect.
+const PROTECTED_PATH_PREFIXES = [
+  "/admin",
+  "/manager",
+  "/staff",
+  "/account",
+  "/checkout",
+  "/payment",
+  "/order-success",
+];
+
+const isOnProtectedRoute = (): boolean => {
+  const path = window.location.pathname;
+  return PROTECTED_PATH_PREFIXES.some(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`),
+  );
+};
+
 // Refresh JWT access token using refresh token
 const refreshAccessToken = async (): Promise<string> => {
   const refreshToken = localStorage.getItem("refreshToken");
@@ -73,8 +93,13 @@ const refreshAccessToken = async (): Promise<string> => {
     localStorage.removeItem("accessToken");
     localStorage.removeItem("refreshToken");
 
-    // Redirect to login page
-    window.location.href = "/login";
+    // CHỈ đá về /login khi đang đứng ở route cần đăng nhập.
+    // Trước đây redirect vô điều kiện: một request 401 lẻ (ví dụ /api/v1/cart —
+    // endpoint này trả 401 cho token không phải CUSTOMER) khi đang ở trang chủ
+    // cũng thổi bay cả phiên và đẩy admin ra màn hình đăng nhập.
+    if (isOnProtectedRoute()) {
+      window.location.href = "/login";
+    }
     throw error;
   }
 };

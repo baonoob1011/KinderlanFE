@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router';
 import { Heart, ShoppingCart, User, LogOut, Search, Menu, X, Home, Percent, Grid, Package, BookOpen, Award, MapPin, UserCircle, ChevronDown } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { useAdmin } from '../../context/AdminContext';
 import CartDropdown from './CartDropdown';
 import ProductMegaMenu from './ProductMegaMenu';
 import { Logo } from '../common/Logo';
@@ -16,6 +17,16 @@ import {
 
 export default function Navbar() {
   const { user, logout, cart, wishlistCount, cartDropdownOpen, setCartDropdownOpen } = useApp();
+  // Nhân viên (admin/manager/staff) không có phiên "user" khách hàng, nhưng vẫn
+  // đang đăng nhập. Không được hiển thị nút "Đăng Nhập" cho họ — phải cho lối
+  // quay lại khu vực quản trị mà không phải đăng nhập lại.
+  const { adminUser } = useAdmin();
+  const adminHome =
+    adminUser?.role === 'manager'
+      ? '/manager/dashboard'
+      : adminUser?.role === 'staff'
+        ? '/staff/dashboard'
+        : '/admin/dashboard';
   const navigate = useNavigate();
   const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -183,6 +194,14 @@ export default function Navbar() {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
+              ) : adminUser ? (
+                <Link
+                  to={adminHome}
+                  className="hidden md:flex items-center gap-1.5 px-4 py-1.5 bg-white text-[#AF140B] rounded-lg hover:bg-white/90 transition-all shadow-md font-bold text-sm"
+                >
+                  <UserCircle className="size-4" />
+                  Khu vực quản trị
+                </Link>
               ) : (
                 <Link
                   to="/login"
@@ -342,6 +361,15 @@ export default function Navbar() {
                     Đăng xuất
                   </button>
                 </div>
+              ) : adminUser ? (
+                <Link
+                  to={adminHome}
+                  onClick={() => setIsMenuOpen(false)}
+                  className="flex items-center justify-center gap-2 px-6 py-3 bg-[#AF140B] text-white rounded-xl hover:bg-[#8D0F08] transition-all shadow-md font-bold"
+                >
+                  <UserCircle className="size-5" />
+                  Khu vực quản trị
+                </Link>
               ) : (
                 <Link
                   to="/login"

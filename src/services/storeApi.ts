@@ -22,6 +22,8 @@ export interface StoreItem {
     address: string;
     phone: string;
     managerName: string;
+    /** Email tài khoản quản lý — backend dùng field này để map manager → cửa hàng. */
+    managerEmail: string | null;
     latitude: number;
     longitude: number;
     openingTime: string;
@@ -149,6 +151,32 @@ export const storeApi = {
                 headers: getAuthHeaders(),
             }
         );
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || `HTTP error! status: ${response.status}`);
+        }
+
+        const json: { data: StoreItem } = await response.json();
+        return json.data;
+    },
+
+    /**
+     * [ADMIN] Cập nhật cửa hàng — PUT /api/v1/stores/{id}
+     *
+     * StoreMapper.updateEntity dùng NullValuePropertyMappingStrategy.IGNORE nên chỉ
+     * cần gửi những field muốn đổi; field không gửi giữ nguyên giá trị cũ. Riêng
+     * `name` luôn phải có vì StoreRequest đánh @NotBlank.
+     */
+    updateStore: async (
+        id: number,
+        payload: { name: string; managerName?: string; managerEmail?: string | null },
+    ): Promise<StoreItem> => {
+        const response = await fetch(`${API_BASE_URL}/api/v1/stores/${id}`, {
+            method: "PUT",
+            headers: getAuthHeaders(),
+            body: JSON.stringify(payload),
+        });
 
         if (!response.ok) {
             const errorText = await response.text();

@@ -47,6 +47,22 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
+/**
+ * Giỏ hàng & wishlist là API DÀNH RIÊNG cho CUSTOMER: /api/v1/cart và
+ * /api/v1/wishlist trả 401 với token admin/manager/staff. Gọi chúng bằng token
+ * nhân viên sẽ kích hoạt luồng refresh-token trong api.ts và có thể xoá sạch
+ * phiên đăng nhập -> admin đang ở trang công khai bị đá về /login.
+ * Vì vậy chỉ fetch khi phiên hiện tại đúng là khách hàng.
+ */
+const STAFF_ROLES = ["ROLE_ADMIN", "ROLE_MANAGER", "ROLE_STAFF", "admin", "manager", "staff"];
+
+const isCustomerSession = (user: User | null): boolean => {
+  if (!user) return false;
+  if (!localStorage.getItem("accessToken")) return false;
+  if (localStorage.getItem("adminUser")) return false;
+  return !STAFF_ROLES.includes(user.role || "");
+};
+
 export const useApp = () => {
   const context = useContext(AppContext);
   if (!context) {
@@ -113,7 +129,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   // Fetch Cart globally
   React.useEffect(() => {
-    if (user && localStorage.getItem("accessToken")) {
+    if (isCustomerSession(user)) {
       refreshCart();
     }
   }, [user]);
@@ -170,6 +186,13 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     localStorage.removeItem("accessToken");
     localStorage.removeItem("refreshToken");
     localStorage.removeItem("myAccountId");
+    // Đăng xuất ở trang công khai cũng phải xoá phiên quản trị, nếu không
+    // adminUser còn sót lại vẫn mở được /admin/* dù token đã bị xoá.
+    localStorage.removeItem("adminUser");
+    localStorage.removeItem("storeId");
+    // AdminProvider là context khác nên không set state trực tiếp được;
+    // báo cho nó tự dọn state trong bộ nhớ.
+    window.dispatchEvent(new Event("auth:logout"));
     setCart([]);
     setVoucher(null);
     setWishlistItemsState([]);
@@ -230,8 +253,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   React.useEffect(() => {
     const fetchInitialWishlist = async () => {
-      const token = localStorage.getItem("accessToken");
-      if (token && user) {
+      if (isCustomerSession(user)) {
         // First sync any guest items to backend
         await syncGuestWishlistToBackend();
         // Then fetch full wishlist from backend

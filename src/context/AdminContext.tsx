@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import type { AdminUser } from '../components/admin/AdminLogin';
 
 interface AdminContextType {
@@ -42,7 +42,19 @@ export const AdminProvider = ({ children }: { children: ReactNode }) => {
     setAdminUser(null);
     localStorage.removeItem('adminUser');
     localStorage.removeItem('storeId');
+    // Trước đây token vẫn nằm lại sau khi "Đăng xuất" khỏi khu vực quản trị:
+    // phiên coi như đã thoát nhưng mọi request sau đó vẫn gửi kèm token cũ.
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('user');
   };
+
+  // Đăng xuất từ phía trang công khai (AppContext.logout) phát sự kiện này.
+  useEffect(() => {
+    const handleLogout = () => setAdminUser(null);
+    window.addEventListener('auth:logout', handleLogout);
+    return () => window.removeEventListener('auth:logout', handleLogout);
+  }, []);
 
   return (
     <AdminContext.Provider value={{ adminUser, loginAdmin, logoutAdmin }}>

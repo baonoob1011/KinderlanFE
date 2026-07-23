@@ -35,6 +35,7 @@ import AdminCategoryController from './components/admin/AdminCategoryController'
 import AdminBrandManagement from './components/admin/AdminBrandManagement';
 import AdminReviewManagement from './components/admin/AdminReviewManagement';
 import AdminBlogManagement from './components/admin/AdminBlogManagement';
+import AdminStoreManagement from './components/admin/AdminStoreManagement';
 import AdminFinancial from './components/admin/AdminFinancial';
 import StaffDashboard from './components/staff/StaffDashboard';
 import QRScanner from './components/staff/QRScanner';
@@ -130,6 +131,7 @@ function AppContent() {
             <Route path="reviews" element={<AdminReviewManagement />} />
             <Route path="returns" element={<ReturnManagement />} />
             <Route path="blog" element={<AdminBlogManagement />} />
+            <Route path="stores" element={<AdminStoreManagement />} />
             <Route path="reports" element={<AdminDashboard />} />
             <Route path="financial" element={<AdminFinancial />} />
             <Route path="inventory" element={<ProductManagement />} />
