@@ -26,6 +26,11 @@ export default function ProductActions({
 }: ProductActionsProps) {
   const { user, addToCart, wishlistItems, setWishlistItems, addWishlistItemGlobal, removeWishlistItemGlobal, setCartDropdownOpen } = useApp();
 
+  // currentStock có thể là undefined/NaN nếu API tồn kho lỗi. Khi đó biểu thức
+  // `quantity < currentStock` luôn false trong khi `currentStock === 0` cũng false
+  // -> nút "+" trông vẫn bấm được nhưng bấm không lên số. Quy về 0 cho nhất quán.
+  const maxQty = Number.isFinite(currentStock) ? currentStock : 0;
+
   const productId = product.id && typeof product.id === 'string' ? parseInt(product.id, 10) : product.id;
   const wishlistItem = wishlistItems?.find((item: any) => (item.productId || item.id) === productId);
   const isLiked = !!wishlistItem;
@@ -95,9 +100,9 @@ export default function ProductActions({
           </button>
           <span className="text-base font-bold w-10 text-center">{quantity}</span>
           <button
-            onClick={() => quantity < currentStock && onQuantityChange(quantity + 1)}
-            className="p-1.5 border border-gray-300 rounded-lg hover:bg-[#AF140B] hover:text-white hover:border-[#AF140B] transition-all disabled:opacity-50"
-            disabled={quantity >= currentStock || currentStock === 0}
+            onClick={() => quantity < maxQty && onQuantityChange(quantity + 1)}
+            className="p-1.5 border border-gray-300 rounded-lg hover:bg-[#AF140B] hover:text-white hover:border-[#AF140B] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={availabilityLoading || quantity >= maxQty}
           >
             <Plus className="size-4" />
           </button>
@@ -108,7 +113,7 @@ export default function ProductActions({
               <Loader2 className="size-3 animate-spin" /> Đang kiểm tra tồn kho...
             </span>
           ) : (
-            `Còn lại: ${currentStock} sản phẩm`
+            `Còn lại: ${maxQty} sản phẩm`
           )}
         </p>
       </div>
@@ -116,11 +121,11 @@ export default function ProductActions({
       {/* Add to Cart */}
       <button
         onClick={handleAddToCart}
-        disabled={currentStock === 0 || availabilityLoading}
+        disabled={maxQty === 0 || availabilityLoading}
         className="w-full bg-[#AF140B] text-white py-2.5 rounded-xl hover:bg-[#8D0F08] transition-all shadow-md flex items-center justify-center gap-2 font-bold text-sm disabled:opacity-50"
       >
         <ShoppingCart className="size-4" />
-        {availabilityLoading ? "Đang kiểm tra..." : currentStock > 0 ? "Thêm vào giỏ hàng" : "Hết hàng"}
+        {availabilityLoading ? "Đang kiểm tra..." : maxQty > 0 ? "Thêm vào giỏ hàng" : "Hết hàng"}
       </button>
 
       {/* Wishlist */}

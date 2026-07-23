@@ -102,26 +102,33 @@ export default function ProductDetail() {
   }, [selectedSku]);
 
   // ── Derived: stores with stock ──────────
+  // Backend trả availabilityStatus = "IN_STOCK" / "OUT_OF_STOCK" (InventoryService).
+  // Bản cũ so với 'Có sẵn'/'Còn ít'/'Còn hàng' — chuỗi tiếng Việt backend không bao
+  // giờ gửi, nên nhánh này là code chết.
   const storesWithStock = storeAvailability.filter((store) => {
-    if (store.quantity != null && store.quantity > 0) return true;
-    if (store.availabilityStatus === 'Có sẵn' || store.availabilityStatus === 'Còn ít' || store.availabilityStatus === 'Còn hàng') return true;
-    return false;
+    if (store.quantity != null) return store.quantity > 0;
+    return store.availabilityStatus === 'IN_STOCK';
   });
 
   const totalSkuStock = storeAvailability.reduce((sum, store) => sum + (store.quantity || 0), 0);
+  // Khi backend không trả quantity, đếm số cửa hàng còn hàng chỉ là ước lượng tối
+  // thiểu — đủ để nút "+" hoạt động thay vì khoá cứng ở 0.
   const currentStock = selectedSku
     ? (totalSkuStock > 0 ? totalSkuStock : storesWithStock.length)
-    : (product ? product.stock : 0);
+    : (product?.stock ?? 0);
 
   // ── Clamp quantity to stock ─────────────
   useEffect(() => {
+    // Đang gọi API tồn kho thì chưa kết luận là hết hàng — nếu ép quantity = 0 ngay
+    // thì nút "+" nháy sang disabled mỗi lần đổi SKU.
+    if (availabilityLoading) return;
     if (currentStock > 0) {
       if (quantity === 0) setQuantity(1);
       else if (quantity > currentStock) setQuantity(currentStock);
     } else {
       setQuantity(0);
     }
-  }, [currentStock, quantity]);
+  }, [currentStock, quantity, availabilityLoading]);
 
   // ── Price helpers ───────────────────────
   const formatPrice = (price: number) =>

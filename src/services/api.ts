@@ -1,8 +1,15 @@
 // API Service utility for making HTTP requests with automatic JWT refresh
 // Local dev: Vite proxy forwards /api/* → localhost:8080
 // Production: vercel.json rewrites forward /api/* → EC2 backend
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "https://api.kinderland.io.vn";
+//
+// Mặc định là ĐƯỜNG DẪN TƯƠNG ĐỐI (""), giống inventoryApi/imageApi/blogCategoryApi.
+// Trước đây file này hard-code "https://api.kinderland.io.vn" nên app chạy trên HAI
+// backend cùng lúc: product/SKU/blog lấy từ PROD, còn inventory/images lấy từ local
+// qua proxy. Hậu quả rõ nhất ở trang sản phẩm — skuId của prod không tồn tại trong
+// kho local nên availability luôn trả quantity = 0 -> nút "+" bị disable và hiện
+// "Hết hàng" dù sản phẩm còn hàng.
+// Vẫn cho phép ghi đè bằng VITE_API_BASE_URL khi cần trỏ thẳng sang một backend khác.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 // Track refresh token requests to avoid multiple concurrent refreshes
 let isRefreshing = false;
 let failedQueue: Array<{
