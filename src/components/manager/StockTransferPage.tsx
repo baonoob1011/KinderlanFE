@@ -8,10 +8,14 @@ import { Badge } from '../ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import {
     Truck, Loader2, AlertCircle, ArrowRight,
-    CheckCircle, RefreshCw, Search, Package,
+    CheckCircle, RefreshCw, Package,
     MapPin, Clock, Inbox, Send, Eye,
 } from 'lucide-react';
-import { inventoryApi, StoreAvailability, InventoryItem } from '../../services/inventoryApi';
+import { inventoryApi, InventoryItem } from '../../services/inventoryApi';
+import { storeApi, StoreItem } from '../../services/storeApi';
+import {
+    Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '../ui/dialog';
 import api from '../../services/api';
 import { toast } from 'sonner';
 
@@ -99,7 +103,6 @@ export default function StockTransferPage() {
 
     // ─── Create Form State ──────────────────────────
     const [skuInput, setSkuInput] = useState('');
-    const [searchedSkuId, setSearchedSkuId] = useState<number | null>(null);
     const [storeSkus, setStoreSkus] = useState<InventoryItem[]>([]);
     const [loadingSkus, setLoadingSkus] = useState(true);
 
@@ -217,7 +220,7 @@ export default function StockTransferPage() {
                     <TabButton active={activeTab === 'incoming'} onClick={() => setActiveTab('incoming')}
                         icon={<Inbox className="w-4 h-4" />} label="Yêu cầu nhận được" badge={incomingPendingCount} />
                     <TabButton active={activeTab === 'create'} onClick={() => setActiveTab('create')}
-                        icon={<Package className="w-4 h-4" />} label="Tạo yêu cầu mới" />
+                        icon={<Package className="w-4 h-4" />} label="Tạo phiếu chuyển hàng" />
                 </div>
             </div>
 
@@ -325,29 +328,32 @@ export default function StockTransferPage() {
                     </>
                 )}
 
-                {/* ══════════════ TAB 3: CREATE ══════════════ */}
+                {/* ══════════════ TAB 3: CREATE (chuyển hàng ĐI) ══════════════ */}
                 {activeTab === 'create' && (
                     <>
-                        {submitSuccess && (
+                        {submitSuccess && sentSummary && (
                             <Card className="border-green-300 bg-green-50 shadow-md">
                                 <CardContent className="p-6 flex items-start gap-4">
                                     <CheckCircle className="w-8 h-8 text-green-600 flex-shrink-0 mt-0.5" />
-                                    <div className="flex-1">
-                                        <h3 className="text-lg font-bold text-green-800 mb-2">Yêu cầu chuyển kho đã được gửi!</h3>
-                                        <div className="flex items-center gap-3 text-sm text-green-700 mb-1">
-                                            <span className="font-medium">{selectedStore?.storeName}</span>
-                                            <ArrowRight className="w-4 h-4" />
-                                            <span className="font-medium">{storeName}</span>
+                                    <div className="flex-1 min-w-0">
+                                        <h3 className="text-lg font-bold text-green-800 mb-2">Đã gửi phiếu chuyển hàng!</h3>
+                                        <div className="flex flex-wrap items-center gap-2 text-sm text-green-700 mb-1">
+                                            <span className="font-medium">{storeName || `Store #${storeId}`}</span>
+                                            <ArrowRight className="w-4 h-4 flex-shrink-0" />
+                                            <span className="font-medium">{sentSummary.to}</span>
                                         </div>
                                         <p className="text-sm text-green-700">
-                                            SKU <strong>#{searchedSkuId}</strong> · Số lượng: <strong>{quantity}</strong>
+                                            {sentSummary.sku} · Số lượng: <strong>{sentSummary.qty}</strong>
                                         </p>
-                                        <div className="flex gap-2 mt-4">
+                                        <p className="text-xs text-green-700/80 mt-1">
+                                            Chờ chi nhánh nhận duyệt, sau đó bạn bấm “Giao hàng” để trừ kho và gửi đi.
+                                        </p>
+                                        <div className="flex flex-wrap gap-2 mt-4">
                                             <Button onClick={handleReset} className="bg-green-600 hover:bg-green-700">
-                                                <RefreshCw className="w-4 h-4 mr-2" />Tạo yêu cầu mới
+                                                <RefreshCw className="w-4 h-4 mr-2" />Tạo phiếu khác
                                             </Button>
                                             <Button variant="outline" onClick={() => setActiveTab('outgoing')}>
-                                                <Eye className="w-4 h-4 mr-2" />Xem yêu cầu đã gửi
+                                                <Eye className="w-4 h-4 mr-2" />Xem phiếu đã gửi
                                             </Button>
                                         </div>
                                     </div>
@@ -357,129 +363,144 @@ export default function StockTransferPage() {
 
                         {!submitSuccess && (
                             <>
-                                {/* Step 1 */}
+                                {/* Step 1 — sản phẩm lấy từ kho CỦA CHÍNH chi nhánh hiện tại */}
                                 <Card className="border border-gray-200 shadow-sm">
                                     <CardHeader>
                                         <CardTitle className="text-lg text-[#2C2C2C] flex items-center gap-2">
                                             <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center font-bold">1</span>
-                                            Chọn sản phẩm cần nhập
+                                            Chọn sản phẩm cần chuyển đi
                                         </CardTitle>
-                                        <CardDescription>Chọn sản phẩm để tìm chi nhánh có hàng</CardDescription>
+                                        <CardDescription>
+                                            Hàng được lấy từ kho của <strong>{storeName || `Store #${storeId}`}</strong> — chi nhánh gửi luôn là cửa hàng bạn đang quản lý.
+                                        </CardDescription>
                                     </CardHeader>
                                     <CardContent>
-                                        <div className="flex gap-3 items-end">
-                                            <div className="max-w-xs flex-1">
-                                                <Label htmlFor="sku" className="mb-1 block">Sản phẩm</Label>
+                                        {!loadingSkus && storeSkus.length === 0 ? (
+                                            <div className="flex items-center gap-2 text-red-600 text-sm">
+                                                <AlertCircle className="w-4 h-4" />
+                                                Kho của bạn chưa có sản phẩm nào để chuyển đi.
+                                            </div>
+                                        ) : (
+                                            <div className="max-w-md">
+                                                <Label htmlFor="sku" className="mb-1 block">Sản phẩm trong kho</Label>
                                                 <Select value={skuInput}
-                                                    onValueChange={val => { setSkuInput(val); setSearchError(null); }}
+                                                    onValueChange={(val: string) => { setSkuInput(val); setQuantity(''); setSubmitError(null); }}
                                                     disabled={loadingSkus || storeSkus.length === 0}>
                                                     <SelectTrigger id="sku" className="w-full">
                                                         <SelectValue placeholder={loadingSkus ? 'Đang tải...' : 'Chọn sản phẩm'} />
                                                     </SelectTrigger>
                                                     <SelectContent>
                                                         {storeSkus.map(sku => (
-                                                            <SelectItem key={sku.skuId} value={String(sku.skuId)}>
-                                                                [{sku.skuCode}] {sku.productName}
+                                                            <SelectItem key={sku.skuId} value={String(sku.skuId)} disabled={sku.quantity <= 0}>
+                                                                [{sku.skuCode}] {sku.productName} · tồn {sku.quantity}
                                                             </SelectItem>
                                                         ))}
                                                     </SelectContent>
                                                 </Select>
-                                            </div>
-                                            <Button onClick={handleSearch} disabled={searching || !skuInput} className="bg-blue-600 hover:bg-blue-700">
-                                                {searching ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Search className="w-4 h-4 mr-2" />}
-                                                Tìm kiếm
-                                            </Button>
-                                        </div>
-                                        {searchError && (
-                                            <div className="flex items-center gap-2 text-red-600 text-sm mt-3">
-                                                <AlertCircle className="w-4 h-4" />{searchError}
+                                                {selectedSku && (
+                                                    <p className="text-xs text-gray-500 mt-1.5">
+                                                        Tồn kho khả dụng tại chi nhánh của bạn: <strong>{availableQty}</strong>
+                                                    </p>
+                                                )}
                                             </div>
                                         )}
                                     </CardContent>
                                 </Card>
 
-                                {/* Step 2 */}
-                                {storeAvailability.length > 0 && (
+                                {/* Step 2 — chi nhánh NHẬN hàng (đã loại chi nhánh hiện tại) */}
+                                {selectedSku && (
                                     <Card className="border border-gray-200 shadow-sm">
                                         <CardHeader className="pb-3">
                                             <CardTitle className="text-lg text-[#2C2C2C] flex items-center gap-2">
                                                 <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center font-bold">2</span>
-                                                Chọn chi nhánh gửi hàng
+                                                Chi nhánh nhận hàng
                                                 <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-xs ml-2">
-                                                    {storeAvailability.length} chi nhánh có hàng
+                                                    {destinationStores.length} chi nhánh
                                                 </Badge>
                                             </CardTitle>
+                                            <CardDescription>Chọn nơi hàng sẽ được chuyển đến</CardDescription>
                                         </CardHeader>
                                         <CardContent className="p-0">
-                                            <div className="divide-y divide-gray-100 max-h-72 overflow-y-auto">
-                                                {storeAvailability.map(store => (
-                                                    <button key={store.storeId} type="button"
-                                                        onClick={() => setSelectedSourceId(store.storeId)}
-                                                        className={`w-full text-left px-4 py-3 flex items-start gap-3 transition-colors ${
-                                                            selectedSourceId === store.storeId
-                                                                ? 'bg-blue-50 border-l-4 border-blue-600'
-                                                                : 'hover:bg-gray-50 border-l-4 border-transparent'
-                                                        }`}>
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className="font-medium text-sm text-[#2C2C2C]">{store.storeName}</p>
-                                                            <span className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
-                                                                <MapPin className="w-3 h-3" />{store.address}
-                                                            </span>
-                                                            {store.openingTime && (
-                                                                <span className="flex items-center gap-1 text-xs text-gray-500">
-                                                                    <Clock className="w-3 h-3" />{store.openingTime}–{store.closingTime}
+                                            {loadingStores ? (
+                                                <div className="p-6 text-center text-gray-400">
+                                                    <Loader2 className="w-6 h-6 mx-auto animate-spin opacity-50" />
+                                                </div>
+                                            ) : destinationStores.length === 0 ? (
+                                                <div className="flex items-center gap-2 text-red-600 text-sm p-4">
+                                                    <AlertCircle className="w-4 h-4" />
+                                                    Không có chi nhánh nào khác để nhận hàng.
+                                                </div>
+                                            ) : (
+                                                <div className="divide-y divide-gray-100 max-h-72 overflow-y-auto">
+                                                    {destinationStores.map(store => (
+                                                        <button key={store.id} type="button"
+                                                            onClick={() => setSelectedDestId(store.id)}
+                                                            className={`w-full text-left px-4 py-3 flex items-start gap-3 transition-colors ${
+                                                                selectedDestId === store.id
+                                                                    ? 'bg-blue-50 border-l-4 border-blue-600'
+                                                                    : 'hover:bg-gray-50 border-l-4 border-transparent'
+                                                            }`}>
+                                                            <div className="flex-1 min-w-0">
+                                                                <p className="font-medium text-sm text-[#2C2C2C]">{store.name}</p>
+                                                                <span className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
+                                                                    <MapPin className="w-3 h-3 shrink-0" />{store.address}
                                                                 </span>
+                                                                {store.openingTime && (
+                                                                    <span className="flex items-center gap-1 text-xs text-gray-500">
+                                                                        <Clock className="w-3 h-3 shrink-0" />{store.openingTime}–{store.closingTime}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            {selectedDestId === store.id && (
+                                                                <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-[10px]">Nơi nhận</Badge>
                                                             )}
-                                                        </div>
-                                                        <AvailBadge status={store.availabilityStatus} />
-                                                    </button>
-                                                ))}
-                                            </div>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </CardContent>
                                     </Card>
                                 )}
 
                                 {/* Step 3 */}
-                                {storeAvailability.length > 0 && (
+                                {selectedSku && (
                                     <Card className="border border-gray-200 shadow-sm">
                                         <CardHeader>
                                             <CardTitle className="text-lg text-[#2C2C2C] flex items-center gap-2">
                                                 <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center font-bold">3</span>
-                                                Xác nhận yêu cầu
+                                                Số lượng và xác nhận
                                             </CardTitle>
                                         </CardHeader>
                                         <CardContent className="space-y-4">
                                             <div className="flex items-center gap-4 bg-blue-50 rounded-xl p-4 border border-blue-100">
-                                                <div className="flex-1 text-center">
-                                                    <p className="text-xs text-gray-500 mb-1">Chi nhánh gửi</p>
-                                                    <p className="font-semibold text-sm text-blue-700">
-                                                        {selectedStore ? selectedStore.storeName : <span className="text-gray-400 italic">Chưa chọn</span>}
-                                                    </p>
+                                                <div className="flex-1 text-center min-w-0">
+                                                    <p className="text-xs text-gray-500 mb-1">Chi nhánh gửi (của bạn)</p>
+                                                    <p className="font-semibold text-sm text-blue-700 truncate">{storeName || `Store #${storeId}`}</p>
                                                 </div>
                                                 <ArrowRight className="w-5 h-5 text-blue-400 flex-shrink-0" />
-                                                <div className="flex-1 text-center">
-                                                    <p className="text-xs text-gray-500 mb-1">Cửa hàng của bạn</p>
-                                                    <p className="font-semibold text-sm text-green-700">{storeName || `Store #${storeId}`}</p>
+                                                <div className="flex-1 text-center min-w-0">
+                                                    <p className="text-xs text-gray-500 mb-1">Chi nhánh nhận</p>
+                                                    <p className="font-semibold text-sm text-green-700 truncate">
+                                                        {selectedDest ? selectedDest.name : <span className="text-gray-400 italic">Chưa chọn</span>}
+                                                    </p>
                                                 </div>
                                             </div>
 
                                             <div className="max-w-xs">
                                                 <Label htmlFor="qty" className="mb-1 block">
-                                                    Số lượng cần <span className="text-[#AF140B]">*</span>
-                                                    {selectedStore?.quantity !== undefined && (
-                                                        <span className="text-gray-500 font-normal text-xs ml-2">(Tối đa: {selectedStore.quantity})</span>
-                                                    )}
+                                                    Số lượng chuyển <span className="text-[#AF140B]">*</span>
+                                                    <span className="text-gray-500 font-normal text-xs ml-2">(Tồn kho của bạn: {availableQty})</span>
                                                 </Label>
-                                                <Input id="qty" type="number" min={1} max={selectedStore?.quantity} placeholder="VD: 5"
+                                                <Input id="qty" type="number" min={1} max={availableQty} placeholder="VD: 5"
                                                     value={quantity} onChange={e => {
                                                         let val = e.target.value;
-                                                        if (selectedStore?.quantity !== undefined && parseInt(val, 10) > selectedStore.quantity)
-                                                            val = String(selectedStore.quantity);
+                                                        if (parseInt(val, 10) > availableQty) val = String(availableQty);
                                                         setQuantity(val);
                                                     }} />
                                                 {isExceeding && (
                                                     <p className="text-sm text-red-600 mt-1 flex items-center gap-1">
-                                                        <AlertCircle className="w-4 h-4 flex-shrink-0" />Vượt quá số lượng
+                                                        <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                                                        Vượt quá tồn kho của chi nhánh bạn
                                                     </p>
                                                 )}
                                             </div>
@@ -490,11 +511,9 @@ export default function StockTransferPage() {
                                                 </div>
                                             )}
 
-                                            <Button onClick={handleSubmit} disabled={submitting || !canSubmit}
+                                            <Button onClick={() => setConfirmOpen(true)} disabled={!canSubmit}
                                                 className="bg-blue-600 hover:bg-blue-700 w-full sm:w-auto">
-                                                {submitting
-                                                    ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Đang gửi...</>
-                                                    : <><Truck className="w-4 h-4 mr-2" />Gửi yêu cầu chuyển kho</>}
+                                                <Truck className="w-4 h-4 mr-2" />Tạo phiếu chuyển hàng
                                             </Button>
                                         </CardContent>
                                     </Card>
