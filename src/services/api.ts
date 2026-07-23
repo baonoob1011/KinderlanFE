@@ -1,7 +1,8 @@
 // API Service utility for making HTTP requests with automatic JWT refresh
 // Local dev: Vite proxy forwards /api/* → localhost:8080
 // Production: vercel.json rewrites forward /api/* → EC2 backend
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "https://api.kinderland.io.vn";
 // Track refresh token requests to avoid multiple concurrent refreshes
 let isRefreshing = false;
 let failedQueue: Array<{
