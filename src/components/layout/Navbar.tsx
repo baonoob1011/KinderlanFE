@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router';
 import { Heart, ShoppingCart, User, LogOut, Search, Menu, X, Home, Percent, Grid, Package, BookOpen, Award, MapPin, UserCircle, ChevronDown } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { useAdmin } from '../../context/AdminContext';
+import UserAvatar from '../common/UserAvatar';
 import CartDropdown from './CartDropdown';
 import ProductMegaMenu from './ProductMegaMenu';
 import { Logo } from '../common/Logo';
@@ -154,9 +155,16 @@ export default function Navbar() {
                 <div className="hidden md:block">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <button className="flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-lg hover:bg-white/90 transition-all shadow-md">
-                        <User className="size-4 text-[#AF140B]" />
-                        <span className="text-xs font-semibold text-[#4A4A4A]">{user.username || user.name}</span>
+                      <button className="flex items-center gap-2 pl-1 pr-3 py-1 bg-white rounded-full hover:bg-white/90 transition-all shadow-md max-w-[200px]">
+                        <UserAvatar
+                          src={user.avatarUrl}
+                          name={user.username || user.name}
+                          size={28}
+                          className="bg-[#FFE5E3]"
+                        />
+                        <span className="text-xs font-semibold text-[#4A4A4A] truncate">
+                          {user.username || user.name}
+                        </span>
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-56">
@@ -336,10 +344,15 @@ export default function Navbar() {
                 <div className="pt-4 border-t border-gray-200 space-y-2">
                   <div className="bg-white shadow-2xl hover:shadow-red-900/10 transition-all duration-300 rounded-xl p-3">
                     <div className="flex items-center gap-2">
-                      <div className="w-10 h-10 rounded-full bg-[#AF140B] flex items-center justify-center text-lg font-bold text-white">
-                        {(user?.username || user?.name || "U").charAt(0).toUpperCase()}
-                      </div>
-                      <span className="text-sm font-semibold text-gray-700">{user.username || user.name}</span>
+                      <UserAvatar
+                        src={user?.avatarUrl}
+                        name={user?.username || user?.name}
+                        size={40}
+                        className="bg-[#FFE5E3]"
+                      />
+                      <span className="text-sm font-semibold text-gray-700 truncate">
+                        {user.username || user.name}
+                      </span>
                     </div>
                   </div>
                   <Link

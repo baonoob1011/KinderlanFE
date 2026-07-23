@@ -33,6 +33,9 @@ import {
 } from '../ui/dialog';
 import { accountApi, UserResponse, AddressRequest } from '../../services/accountApi';
 import api from '../../services/api';
+import { loyaltyApi } from '../../services/loyaltyApi';
+import { resolveTier } from '../../services/membership';
+import UserAvatar from '../common/UserAvatar';
 
 interface Address {
   addressId: number;
@@ -122,6 +125,17 @@ export default function CustomerProfile() {
     fetchProfile();
     fetchAddresses();
   }, []);
+
+  // Điểm tích luỹ -> hạng thành viên hiển thị trên badge.
+  // Hỏng API thì coi như hạng thấp nhất, không chặn cả trang hồ sơ vì một cái badge.
+  const [lifetimePoints, setLifetimePoints] = useState(0);
+  useEffect(() => {
+    loyaltyApi
+      .getMyPoints()
+      .then((data) => setLifetimePoints(data.lifetimePoints ?? 0))
+      .catch(() => setLifetimePoints(0));
+  }, []);
+  const tier = resolveTier(lifetimePoints);
 
   // ─── Profile handlers ────────────────────────────────────
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -290,20 +304,26 @@ export default function CustomerProfile() {
           <div className="bg-gradient-to-r from-[#AF140B] via-[#D32F2F] to-[#C62828] h-32 relative">
             <div className="absolute inset-0 bg-black/10" />
           </div>
-          <CardContent className="flex items-center gap-6 -mt-12 pb-8 px-8">
-            <div className="w-24 h-24 rounded-full bg-white shadow-2xl border-4 border-white flex items-center justify-center text-3xl font-bold text-[#AF140B]">
-              {(user?.username || user?.name || 'U').charAt(0).toUpperCase()}
-            </div>
-            <div className="flex-1">
-              <h2 className="text-2xl font-black text-gray-900 tracking-tight">
+          <CardContent className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 -mt-12 pb-8 px-6 sm:px-8 text-center sm:text-left">
+            <UserAvatar
+              src={user?.avatarUrl}
+              name={profileData?.firstName || user?.username || user?.name}
+              size={96}
+              className="shadow-2xl border-4 border-white"
+            />
+            <div className="flex-1 min-w-0">
+              <h2 className="text-2xl font-black text-gray-900 tracking-tight truncate">
                 {profileData?.firstName
                   ? `${profileData.firstName} ${profileData.lastName}`
                   : user?.username || user?.name}
               </h2>
-              <p className="text-gray-600 text-sm">{user?.email}</p>
+              {/* Email dài (Google) từng tràn ra ngoài thẻ trên màn hình hẹp. */}
+              <p className="text-gray-600 text-sm truncate">{user?.email}</p>
             </div>
-            <Badge className="bg-yellow-400 text-white font-semibold shadow-sm">
-              👑 Gold Member
+            {/* Hạng thật theo điểm tích luỹ. Trước đây hardcode "Gold Member" cho
+                MỌI tài khoản, kể cả tài khoản 0 điểm. */}
+            <Badge className="bg-[#FFF4D6] text-[#8A6100] border border-[#D4AF37]/40 font-semibold shadow-sm whitespace-nowrap">
+              {tier.current.icon} Hạng {tier.current.label}
             </Badge>
           </CardContent>
         </Card>

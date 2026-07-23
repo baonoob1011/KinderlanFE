@@ -154,11 +154,25 @@ export default function Wishlist() {
 
                   <div className="aspect-square bg-gradient-to-br from-red-50 to-white overflow-hidden">
 
-                    <img
-                      src={item.productImageUrl || item.imageUrl || item.image}
-                      alt={item.productName || item.name}
-                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                    />
+                    {/* Sản phẩm chưa có ảnh -> placeholder, thay vì <img src={undefined}>
+                        vốn hiện icon ảnh vỡ kèm alt text. */}
+                    {(item.imageUrl || item.productImageUrl || item.image) ? (
+                      <img
+                        src={item.imageUrl || item.productImageUrl || item.image}
+                        alt={item.productName || item.name}
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                        onError={(e) => {
+                          // Presigned URL hết hạn hoặc key hỏng -> đổi sang placeholder.
+                          const el = e.target as HTMLImageElement;
+                          el.style.display = 'none';
+                          el.parentElement?.classList.add('flex', 'items-center', 'justify-center');
+                        }}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <Heart className="w-10 h-10 text-red-200" />
+                      </div>
+                    )}
 
                   </div>
 

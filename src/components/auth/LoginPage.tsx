@@ -16,6 +16,29 @@ import { motion } from "motion/react";
 import api from "../../services/api";
 import GoogleAuthService from "../../services/googleAuth";
 
+/**
+ * Đọc phần payload của Google ID token (JWT 3 phần, base64url).
+ * CHỈ dùng để hiển thị (tên, ảnh) — việc XÁC THỰC token vẫn do backend làm,
+ * client không được tin nội dung này cho bất kỳ quyết định bảo mật nào.
+ */
+function decodeGoogleCredential(credential: string): {
+  name?: string;
+  given_name?: string;
+  family_name?: string;
+  picture?: string;
+} | null {
+  try {
+    const payload = credential.split(".")[1];
+    // base64url -> base64, và bù '=' cho đủ block 4 ký tự.
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
+    // decodeURIComponent(escape(...)) để không vỡ tên có dấu tiếng Việt.
+    return JSON.parse(decodeURIComponent(escape(atob(padded))));
+  } catch {
+    return null;
+  }
+}
+
 export default function LoginPage() {
   const [isLogin, setIsLogin] = useState(true);
 
@@ -214,6 +237,10 @@ const handleResetPassword = async (e: React.FormEvent) => {
       const response = await api.loginWithGoogle(credential);
       const data = response.data || response;
 
+      // ID token của Google chứa sẵn ảnh đại diện + họ tên. Backend không trả các
+      // trường này nên phải đọc thẳng từ credential, nếu không avatar luôn là chữ cái đầu.
+      const googleProfile = decodeGoogleCredential(credential);
+
       if (!data?.accessToken) {
         toast.error("Phản hồi server không hợp lệ");
         return;
@@ -264,10 +291,15 @@ const handleResetPassword = async (e: React.FormEvent) => {
           id: String(accountId),
           email: email,
           username: data.username || email.split("@")[0],
-          firstName: data.firstName || "",
-          lastName: data.lastName || "",
-          name: data.name || `${data.firstName || ""} ${data.lastName || ""}`.trim() || email.split("@")[0],
+          firstName: data.firstName || googleProfile?.given_name || "",
+          lastName: data.lastName || googleProfile?.family_name || "",
+          name:
+            data.name ||
+            `${data.firstName || ""} ${data.lastName || ""}`.trim() ||
+            googleProfile?.name ||
+            email.split("@")[0],
           role,
+          avatarUrl: googleProfile?.picture,
         });
         const from = (location.state as any)?.from?.pathname || "/";
         navigate(from, { replace: true });

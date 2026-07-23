@@ -1,14 +1,19 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import {
     Store as StoreIcon, RefreshCw, Search, Save, X, Loader2,
-    UserCog, AlertTriangle, CheckCircle2, MapPin,
+    UserCog, AlertTriangle, CheckCircle2, MapPin, UserMinus,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Card, CardContent } from "../ui/card";
+import {
+    Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "../ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { toast } from "sonner";
 import { storeApi, StoreItem } from "../../services/storeApi";
+import { adminAccountApi, AdminAccount } from "../../services/adminAccountApi";
 
 /**
  * Gán tài khoản quản lý cho từng cửa hàng.
@@ -24,7 +29,11 @@ export default function AdminStoreManagement() {
     const [loading, setLoading] = useState(false);
     const [search, setSearch] = useState("");
 
-    const [editingId, setEditingId] = useState<number | null>(null);
+    /** Danh sách tài khoản role MANAGER để chọn — tránh gõ sai email. */
+    const [managers, setManagers] = useState<AdminAccount[]>([]);
+    const [managersError, setManagersError] = useState(false);
+
+    const [editing, setEditing] = useState<StoreItem | null>(null);
     const [form, setForm] = useState({ managerName: "", managerEmail: "" });
     const [saving, setSaving] = useState(false);
 
@@ -39,10 +48,29 @@ export default function AdminStoreManagement() {
         }
     }, []);
 
-    useEffect(() => { fetchStores(); }, [fetchStores]);
+    const fetchManagers = useCallback(async () => {
+        try {
+            const accounts = await adminAccountApi.getAccounts();
+            // BE trả role có thể kèm prefix ROLE_
+            setManagers(accounts.filter((a) => (a.role ?? "").toUpperCase().includes("MANAGER")));
+            setManagersError(false);
+        } catch {
+            // Không chặn màn hình: vẫn cho nhập email thủ công.
+            setManagersError(true);
+        }
+    }, []);
+
+    useEffect(() => { fetchStores(); fetchManagers(); }, [fetchStores, fetchManagers]);
+
+    /** email (lowercase) → cửa hàng đang giữ, để chặn gán 1 manager cho 2 cửa hàng. */
+    const emailToStore = useMemo(() => {
+        const map = new Map<string, StoreItem>();
+        stores.forEach((s) => { if (s.managerEmail) map.set(s.managerEmail.toLowerCase(), s); });
+        return map;
+    }, [stores]);
 
     const openEdit = (store: StoreItem) => {
-        setEditingId(store.id);
+        setEditing(store);
         setForm({
             managerName: store.managerName ?? "",
             managerEmail: store.managerEmail ?? "",
@@ -50,41 +78,73 @@ export default function AdminStoreManagement() {
     };
 
     const cancelEdit = () => {
-        setEditingId(null);
+        setEditing(null);
         setForm({ managerName: "", managerEmail: "" });
     };
 
-    const handleSave = async (store: StoreItem) => {
-        const email = form.managerEmail.trim();
-        if (email && !/^\S+@\S+\.\S+$/.test(email)) {
-            toast.error("Email quản lý không hợp lệ.");
-            return;
-        }
-        // Cảnh báo sớm: backend tìm cửa hàng theo managerEmail nên hai cửa hàng
-        // trùng email sẽ khiến findByManagerEmail không xác định được lấy cái nào.
-        const duplicate = stores.find(
-            (s) => s.id !== store.id && (s.managerEmail ?? "").toLowerCase() === email.toLowerCase() && email !== "",
-        );
-        if (duplicate) {
-            toast.error(`Email này đã được gán cho "${duplicate.name}". Mỗi quản lý chỉ nên phụ trách 1 cửa hàng.`);
-            return;
-        }
+    /** Chọn 1 tài khoản trong dropdown → tự điền luôn tên hiển thị. */
+    const pickManager = (email: string) => {
+        const acc = managers.find((m) => m.email === email);
+        setForm({
+            managerEmail: email,
+            managerName: acc
+                ? [acc.firstName, acc.lastName].filter(Boolean).join(" ").trim() || acc.username
+                : form.managerName,
+        });
+    };
 
+    const persist = async (
+        store: StoreItem,
+        payload: { managerName: string; managerEmail: string },
+        successMsg: string,
+    ) => {
         setSaving(true);
         try {
             const updated = await storeApi.updateStore(store.id, {
                 name: store.name, // @NotBlank — bắt buộc gửi kèm dù không đổi
-                managerName: form.managerName.trim(),
-                managerEmail: email,
+                ...payload,
             });
             setStores((prev) => prev.map((s) => (s.id === store.id ? { ...s, ...updated } : s)));
-            toast.success(`Đã gán quản lý cho "${store.name}".`);
+            toast.success(successMsg);
             cancelEdit();
         } catch (err) {
             toast.error(err instanceof Error ? err.message : "Lưu thất bại.");
         } finally {
             setSaving(false);
         }
+    };
+
+    const handleSave = async (store: StoreItem) => {
+        const email = form.managerEmail.trim();
+        if (!email) {
+            toast.error("Vui lòng chọn hoặc nhập email tài khoản quản lý.");
+            return;
+        }
+        if (!/^\S+@\S+\.\S+$/.test(email)) {
+            toast.error("Email quản lý không hợp lệ.");
+            return;
+        }
+        // Backend map manager → cửa hàng bằng findByManagerEmail nên hai cửa hàng
+        // trùng email sẽ khiến nó không xác định được lấy cái nào.
+        const duplicate = emailToStore.get(email.toLowerCase());
+        if (duplicate && duplicate.id !== store.id) {
+            toast.error(`Email này đã được gán cho "${duplicate.name}". Mỗi quản lý chỉ nên phụ trách 1 cửa hàng.`);
+            return;
+        }
+
+        await persist(
+            store,
+            { managerName: form.managerName.trim(), managerEmail: email },
+            `Đã gán quản lý cho "${store.name}".`,
+        );
+    };
+
+    const handleUnassign = async (store: StoreItem) => {
+        await persist(
+            store,
+            { managerName: "", managerEmail: "" },
+            `Đã bỏ gán quản lý khỏi "${store.name}".`,
+        );
     };
 
     const filtered = stores.filter((s) => {
@@ -161,7 +221,6 @@ export default function AdminStoreManagement() {
                                     <StoreIcon className="w-10 h-10 mx-auto mb-2 opacity-30" /><p>Không có cửa hàng nào</p>
                                 </td></tr>
                             ) : filtered.map((store, idx) => {
-                                const isEditing = editingId === store.id;
                                 return (
                                     <tr key={store.id} className="hover:bg-gray-50/60 transition-colors align-top">
                                         <td className="px-4 py-3 text-gray-400">{idx + 1}</td>
@@ -173,36 +232,10 @@ export default function AdminStoreManagement() {
                                             </p>
                                         </td>
                                         <td className="px-4 py-3">
-                                            {isEditing ? (
-                                                <div className="min-w-[10rem]">
-                                                    <Label className="text-xs text-gray-500 mb-1 block">Tên quản lý</Label>
-                                                    <Input
-                                                        value={form.managerName}
-                                                        onChange={(e) => setForm((f) => ({ ...f, managerName: e.target.value }))}
-                                                        placeholder="VD: Nguyễn Văn A"
-                                                        className="h-8"
-                                                    />
-                                                </div>
-                                            ) : (
-                                                <span className="text-gray-700">{store.managerName || "—"}</span>
-                                            )}
+                                            <span className="text-gray-700">{store.managerName || "—"}</span>
                                         </td>
                                         <td className="px-4 py-3">
-                                            {isEditing ? (
-                                                <div className="min-w-[14rem]">
-                                                    <Label className="text-xs text-gray-500 mb-1 block">
-                                                        Email tài khoản manager
-                                                    </Label>
-                                                    <Input
-                                                        type="email"
-                                                        value={form.managerEmail}
-                                                        onChange={(e) => setForm((f) => ({ ...f, managerEmail: e.target.value }))}
-                                                        onKeyDown={(e) => { if (e.key === "Enter") handleSave(store); }}
-                                                        placeholder="manager@kinderland.vn"
-                                                        className="h-8"
-                                                    />
-                                                </div>
-                                            ) : store.managerEmail ? (
+                                            {store.managerEmail ? (
                                                 <span className="inline-flex items-center gap-1.5 text-xs bg-green-50 text-green-700 border border-green-200 px-2 py-1 rounded-full">
                                                     <CheckCircle2 className="w-3 h-3" />{store.managerEmail}
                                                 </span>
@@ -214,28 +247,21 @@ export default function AdminStoreManagement() {
                                         </td>
                                         <td className="px-4 py-3">
                                             <div className="flex items-center justify-end gap-1.5">
-                                                {isEditing ? (
-                                                    <>
-                                                        <Button size="sm" variant="outline" onClick={cancelEdit} disabled={saving}>
-                                                            <X className="w-4 h-4 mr-1" />Huỷ
-                                                        </Button>
-                                                        <Button
-                                                            size="sm"
-                                                            className="bg-[#AF140B] hover:bg-[#8B0000] text-white"
-                                                            onClick={() => handleSave(store)}
-                                                            disabled={saving}
-                                                        >
-                                                            {saving
-                                                                ? <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                                                                : <Save className="w-4 h-4 mr-1" />}
-                                                            Lưu
-                                                        </Button>
-                                                    </>
-                                                ) : (
-                                                    <Button size="sm" variant="outline" onClick={() => openEdit(store)}>
-                                                        <UserCog className="w-4 h-4 mr-1" />Gán quản lý
+                                                {store.managerEmail && (
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        className="text-gray-500"
+                                                        onClick={() => handleUnassign(store)}
+                                                        disabled={saving}
+                                                    >
+                                                        <UserMinus className="w-4 h-4 mr-1" />Bỏ gán
                                                     </Button>
                                                 )}
+                                                <Button size="sm" variant="outline" onClick={() => openEdit(store)}>
+                                                    <UserCog className="w-4 h-4 mr-1" />
+                                                    {store.managerEmail ? "Đổi quản lý" : "Gán quản lý"}
+                                                </Button>
                                             </div>
                                         </td>
                                     </tr>
@@ -245,6 +271,99 @@ export default function AdminStoreManagement() {
                     </table>
                 </div>
             </Card>
+
+            {/* Dialog gán quản lý */}
+            <Dialog open={editing !== null} onOpenChange={(open: boolean) => { if (!open) cancelEdit(); }}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <UserCog className="w-5 h-5 text-[#AF140B]" />Gán quản lý cửa hàng
+                        </DialogTitle>
+                        <DialogDescription>
+                            {editing?.name}
+                            {editing?.address ? ` — ${editing.address}` : ""}
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-4 py-1">
+                        <div>
+                            <Label className="mb-1.5 block">Tài khoản manager</Label>
+                            {managersError ? (
+                                <p className="text-xs text-amber-700 mb-1.5">
+                                    Không tải được danh sách tài khoản — vui lòng nhập email thủ công bên dưới.
+                                </p>
+                            ) : (
+                                <Select value={form.managerEmail || undefined} onValueChange={pickManager}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Chọn tài khoản có quyền MANAGER..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {managers.length === 0 ? (
+                                            <div className="px-3 py-2 text-sm text-gray-400">
+                                                Chưa có tài khoản MANAGER nào
+                                            </div>
+                                        ) : managers.map((m) => {
+                                            const taken = emailToStore.get(m.email.toLowerCase());
+                                            const busy = taken && taken.id !== editing?.id;
+                                            return (
+                                                <SelectItem key={m.id} value={m.email} disabled={!!busy}>
+                                                    <span className="flex flex-col text-left">
+                                                        <span>
+                                                            {[m.firstName, m.lastName].filter(Boolean).join(" ") || m.username}
+                                                        </span>
+                                                        <span className="text-xs text-gray-500">
+                                                            {m.email}{busy ? ` • đang quản lý ${taken!.name}` : ""}
+                                                        </span>
+                                                    </span>
+                                                </SelectItem>
+                                            );
+                                        })}
+                                    </SelectContent>
+                                </Select>
+                            )}
+                        </div>
+
+                        <div>
+                            <Label className="mb-1.5 block">Email tài khoản manager</Label>
+                            <Input
+                                type="email"
+                                value={form.managerEmail}
+                                onChange={(e) => setForm((f) => ({ ...f, managerEmail: e.target.value }))}
+                                onKeyDown={(e) => { if (e.key === "Enter" && editing) handleSave(editing); }}
+                                placeholder="manager@kinderland.vn"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">
+                                Phải trùng <strong>chính xác</strong> email đăng nhập của manager.
+                            </p>
+                        </div>
+
+                        <div>
+                            <Label className="mb-1.5 block">Tên hiển thị</Label>
+                            <Input
+                                value={form.managerName}
+                                onChange={(e) => setForm((f) => ({ ...f, managerName: e.target.value }))}
+                                placeholder="VD: Nguyễn Văn A"
+                            />
+                        </div>
+                    </div>
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={cancelEdit} disabled={saving}>
+                            <X className="w-4 h-4 mr-1" />Huỷ
+                        </Button>
+                        <Button
+                            className="bg-[#AF140B] hover:bg-[#8B0000] text-white"
+                            onClick={() => editing && handleSave(editing)}
+                            disabled={saving}
+                        >
+                            {saving
+                                ? <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                                : <Save className="w-4 h-4 mr-1" />}
+                            Lưu
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <CardContent className="p-0 text-xs text-gray-500">
                 Email phải trùng <strong>chính xác</strong> email đăng nhập của tài khoản manager.

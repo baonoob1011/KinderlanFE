@@ -12,6 +12,8 @@ interface User {
   phone?: string;
   role?: string;
   address?: string;
+  /** Ảnh đại diện. Đăng nhập Google: lấy từ claim "picture" trong ID token. */
+  avatarUrl?: string;
   membershipTier?: 'bronze' | 'silver' | 'gold';
   points?: number;
 }

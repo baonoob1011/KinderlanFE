@@ -1,6 +1,8 @@
 import React from 'react';
 import { Link } from 'react-router';
 import { useApp } from '../../context/AppContext';
+import api from '../../services/api';
+import { loyaltyApi } from '../../services/loyaltyApi';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -16,19 +18,79 @@ import {
   Settings
 } from 'lucide-react';
 
+// Đơn còn đang chạy vs đã xong — theo OrderStatus của order-service.
+// CANCELLED không thuộc nhóm nào, nhưng vẫn tính vào tổng số đơn.
+const PENDING_STATUSES = ['PENDING', 'PAID', 'SHIPPING'];
+const COMPLETED_STATUSES = ['DELIVERED', 'COMPLETED'];
+
+/** Lấy mảng từ BaseResponse — các endpoint trả về {data: []}, {items: []} hoặc mảng trần. */
+const toArray = (res: any): any[] => {
+  if (Array.isArray(res)) return res;
+  if (Array.isArray(res?.data)) return res.data;
+  if (Array.isArray(res?.items)) return res.items;
+  if (Array.isArray(res?.data?.items)) return res.data.items;
+  return [];
+};
+
 export default function CustomerDashboard() {
   const { user } = useApp();
 
-  // Mock data for customer stats
-  const customerStats = {
-    totalOrders: 12,
-    pendingOrders: 2,
-    completedOrders: 10,
-    points: user?.points || 0,
-    membershipTier: user?.membershipTier || 'bronze',
-    wishlistCount: 8,
-    savedAddresses: 3,
-  };
+  const [customerStats, setCustomerStats] = React.useState({
+    totalOrders: 0,
+    pendingOrders: 0,
+    completedOrders: 0,
+    points: 0,
+    wishlistCount: 0,
+    savedAddresses: 0,
+  });
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    const fetchStats = async () => {
+      setLoading(true);
+      // allSettled: mỗi ô số liệu đến từ một service riêng. Dùng Promise.all thì
+      // một service lỗi sẽ làm trắng toàn bộ dashboard — ở đây ô nào hỏng thì chỉ
+      // ô đó về 0, các ô còn lại vẫn hiển thị số thật.
+      const [ordersRes, pointsRes, wishlistRes, addressRes] = await Promise.allSettled([
+        api.getMyOrders(),
+        loyaltyApi.getMyPoints(),
+        api.get('/api/v1/wishlist'),
+        api.getMyAddresses(),
+      ]);
+
+      if (cancelled) return;
+
+      const orders = ordersRes.status === 'fulfilled' ? toArray(ordersRes.value) : [];
+      const statusOf = (o: any) => String(o?.orderStatus ?? o?.status ?? '').toUpperCase();
+
+      if (ordersRes.status === 'rejected') console.error('Lỗi tải đơn hàng:', ordersRes.reason);
+      if (pointsRes.status === 'rejected') console.error('Lỗi tải điểm:', pointsRes.reason);
+      if (wishlistRes.status === 'rejected') console.error('Lỗi tải yêu thích:', wishlistRes.reason);
+      if (addressRes.status === 'rejected') console.error('Lỗi tải địa chỉ:', addressRes.reason);
+
+      setCustomerStats({
+        totalOrders: orders.length,
+        pendingOrders: orders.filter((o) => PENDING_STATUSES.includes(statusOf(o))).length,
+        completedOrders: orders.filter((o) => COMPLETED_STATUSES.includes(statusOf(o))).length,
+        points: pointsRes.status === 'fulfilled' ? pointsRes.value?.totalPoints ?? 0 : 0,
+        wishlistCount: wishlistRes.status === 'fulfilled' ? toArray(wishlistRes.value).length : 0,
+        savedAddresses: addressRes.status === 'fulfilled' ? toArray(addressRes.value).length : 0,
+      });
+      setLoading(false);
+    };
+
+    fetchStats();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const membershipTier = user?.membershipTier || 'bronze';
+
+  /** Số liệu đang tải thì hiện "…" thay vì 0 — tránh nhấp nháy số 0 rồi mới ra số thật. */
+  const stat = (value: number) => (loading ? '…' : value.toLocaleString('vi-VN'));
 
   const getMembershipBadge = (tier: string) => {
     const badges: { [key: string]: { icon: string; color: string; label: string } } = {
@@ -39,7 +101,7 @@ export default function CustomerDashboard() {
     return badges[tier] || badges.bronze;
   };
 
-  const membershipBadge = getMembershipBadge(customerStats.membershipTier);
+  const membershipBadge = getMembershipBadge(membershipTier);
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -66,7 +128,7 @@ export default function CustomerDashboard() {
                 <p className="text-blue-100 mb-4">ID: {user?.id || 'N/A'}</p>
                 <div className="flex items-center gap-2">
                   <Star className="w-5 h-5 fill-[#FFD700] text-[#FFD700]" />
-                  <span className="text-2xl font-bold">{customerStats.points.toLocaleString('vi-VN')}</span>
+                  <span className="text-2xl font-bold">{stat(customerStats.points)}</span>
                   <span className="text-blue-100">điểm</span>
                 </div>
               </div>
@@ -89,7 +151,7 @@ export default function CustomerDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600 mb-1">Tổng đơn hàng</p>
-                  <p className="text-3xl font-bold text-gray-900">{customerStats.totalOrders}</p>
+                  <p className="text-3xl font-bold text-gray-900">{stat(customerStats.totalOrders)}</p>
                 </div>
                 <div className="bg-indigo-100 p-3 rounded-lg">
                   <ShoppingBag className="w-6 h-6 text-indigo-600" />
@@ -103,7 +165,7 @@ export default function CustomerDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600 mb-1">Đang xử lý</p>
-                  <p className="text-3xl font-bold text-orange-600">{customerStats.pendingOrders}</p>
+                  <p className="text-3xl font-bold text-orange-600">{stat(customerStats.pendingOrders)}</p>
                 </div>
                 <div className="bg-orange-100 p-3 rounded-lg">
                   <CreditCard className="w-6 h-6 text-orange-600" />
@@ -117,7 +179,7 @@ export default function CustomerDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600 mb-1">Đã hoàn thành</p>
-                  <p className="text-3xl font-bold text-green-600">{customerStats.completedOrders}</p>
+                  <p className="text-3xl font-bold text-green-600">{stat(customerStats.completedOrders)}</p>
                 </div>
                 <div className="bg-green-100 p-3 rounded-lg">
                   <ShoppingBag className="w-6 h-6 text-green-600" />
@@ -131,7 +193,7 @@ export default function CustomerDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600 mb-1">Yêu thích</p>
-                  <p className="text-3xl font-bold text-pink-600">{customerStats.wishlistCount}</p>
+                  <p className="text-3xl font-bold text-pink-600">{stat(customerStats.wishlistCount)}</p>
                 </div>
                 <div className="bg-pink-100 p-3 rounded-lg">
                   <Heart className="w-6 h-6 text-pink-600" />
@@ -179,10 +241,10 @@ export default function CustomerDashboard() {
                 </p>
                 <div className="flex gap-2">
                   <Badge variant="outline" className="border-orange-300 text-orange-600">
-                    {customerStats.pendingOrders} đang xử lý
+                    {stat(customerStats.pendingOrders)} đang xử lý
                   </Badge>
                   <Badge variant="outline" className="border-green-300 text-green-600">
-                    {customerStats.completedOrders} hoàn thành
+                    {stat(customerStats.completedOrders)} hoàn thành
                   </Badge>
                 </div>
               </CardContent>
@@ -204,7 +266,7 @@ export default function CustomerDashboard() {
                 </p>
                 <div className="flex items-center gap-2">
                   <span className="text-2xl font-bold text-indigo-600">
-                    {customerStats.points.toLocaleString('vi-VN')}
+                    {stat(customerStats.points)}
                   </span>
                   <span className="text-sm text-gray-500">điểm</span>
                 </div>
@@ -226,7 +288,7 @@ export default function CustomerDashboard() {
                   Quản lý các địa chỉ giao hàng của bạn
                 </p>
                 <p className="text-sm">
-                  <strong>{customerStats.savedAddresses}</strong> địa chỉ đã lưu
+                  <strong>{stat(customerStats.savedAddresses)}</strong> địa chỉ đã lưu
                 </p>
               </CardContent>
             </Link>
@@ -246,7 +308,7 @@ export default function CustomerDashboard() {
                   Danh sách những sản phẩm bạn quan tâm
                 </p>
                 <p className="text-sm">
-                  <strong>{customerStats.wishlistCount}</strong> sản phẩm
+                  <strong>{stat(customerStats.wishlistCount)}</strong> sản phẩm
                 </p>
               </CardContent>
             </Link>
@@ -265,7 +327,8 @@ export default function CustomerDashboard() {
                 <p className="text-sm text-gray-600 mb-3">
                   Cài đặt nhận thông báo khuyến mãi và đơn hàng
                 </p>
-                <Badge className="bg-red-500">3 thông báo mới</Badge>
+                {/* Bỏ badge "3 thông báo mới" — đó là số cứng, notification-service
+                    chưa có endpoint đọc thông báo của khách nên không có số thật để hiện. */}
               </CardContent>
             </Link>
           </Card>

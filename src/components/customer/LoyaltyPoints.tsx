@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router';
 import { useApp } from '../../context/AppContext';
 import { loyaltyApi } from '../../services/loyaltyApi';
+import { resolveTier } from '../../services/membership';
 import { api } from '../../services/api';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -69,23 +70,8 @@ export default function LoyaltyPoints() {
   const currentPoints = realPoints ?? user?.points ?? 0;
   const lifetimePoints = realLifetimePoints ?? currentPoints;
 
-  // Hạng thành viên suy ra từ ĐIỂM TÍCH LUỸ THẬT (lifetimePoints).
-  // Trước đây lấy user.membershipTier — trường này chỉ tồn tại trong dữ liệu demo,
-  // luồng đăng nhập thật không bao giờ set nên mọi tài khoản đều rơi về 'bronze'.
-  // Backend tích 1 điểm cho mỗi 1₫ chi trả (LoyaltyService.EARN_RATE = 1).
-  const TIER_THRESHOLDS = [
-    { key: 'bronze', min: 0 },
-    { key: 'silver', min: 5_000_000 },
-    { key: 'gold', min: 20_000_000 },
-    { key: 'platinum', min: 50_000_000 },
-  ] as const;
-
-  const tierIndex = TIER_THRESHOLDS.reduce(
-    (acc, tier, index) => (lifetimePoints >= tier.min ? index : acc),
-    0,
-  );
-  const currentTier = TIER_THRESHOLDS[tierIndex].key;
-  const nextTierEntry = TIER_THRESHOLDS[tierIndex + 1];
+  // Hạng thành viên suy ra từ điểm tích luỹ thật — xem services/membership.ts.
+  const { current: currentTierDef, next: nextTierDef, pointsToNext } = resolveTier(lifetimePoints);
 
   const customerPoints = {
     current: currentPoints,
@@ -95,9 +81,9 @@ export default function LoyaltyPoints() {
     expiryDate: pointsExpiresAt
       ? new Date(pointsExpiresAt).toLocaleDateString('vi-VN')
       : null,
-    tier: currentTier,
-    nextTier: nextTierEntry?.key ?? currentTier,
-    pointsToNextTier: nextTierEntry ? Math.max(nextTierEntry.min - lifetimePoints, 0) : 0,
+    tier: currentTierDef.key,
+    nextTier: nextTierDef?.key ?? currentTierDef.key,
+    pointsToNextTier: pointsToNext,
   };
 
   const tierBenefits = {
