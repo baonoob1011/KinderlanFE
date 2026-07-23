@@ -319,7 +319,9 @@ export default function CustomerProfile() {
               src={user?.avatarUrl}
               name={profileData?.firstName || user?.username || user?.name}
               size={96}
-              className="shadow-2xl border-4 border-white -mt-16 shrink-0 mx-auto sm:mx-0"
+              // self-start là bắt buộc: với align-items:center, margin âm chỉ làm
+              // flex item tự căn lại trong dòng chứ không nhô lên khỏi khối trắng.
+              className="shadow-2xl border-4 border-white -mt-16 self-center sm:self-start shrink-0"
             />
             <div className="flex-1 min-w-0">
               <h2 className="text-2xl font-black text-gray-900 tracking-tight truncate">
