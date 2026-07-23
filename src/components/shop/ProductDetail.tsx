@@ -26,6 +26,9 @@ export default function ProductDetail() {
   // ── SKU state ───────────────────────────
   const [skus, setSkus] = useState<any[]>([]);
   const [selectedSku, setSelectedSku] = useState<any>(null);
+  // Người dùng đã tự bấm chọn biến thể chưa — nếu rồi thì không được tự động
+  // đổi SKU dưới chân họ nữa.
+  const [skuPickedByUser, setSkuPickedByUser] = useState(false);
 
   // ── Store availability ──────────────────
   const [storeAvailability, setStoreAvailability] = useState<StoreAvailability[]>([]);
@@ -75,6 +78,7 @@ export default function ProductDetail() {
         const res = await api.get("/api/v1/sku");
         const productSkus = res.data.filter((sku: any) => sku.productId === product.id);
         setSkus(productSkus);
+        setSkuPickedByUser(false);
         if (productSkus.length > 0) setSelectedSku(productSkus[0]);
       } catch (error) {
         console.error(error);
@@ -82,6 +86,46 @@ export default function ProductDetail() {
     };
     fetchSkus();
   }, [product]);
+
+  // ── Chọn mặc định SKU CÒN HÀNG ──────────
+  // Trước đây luôn lấy productSkus[0] theo đúng thứ tự API trả về. Nhiều sản phẩm
+  // có SKU "rỗng" (size/type = "") tồn kho 0 đứng trước SKU thật, nên trang hiện
+  // "Hết hàng / Còn lại: 0" dù kho còn hàng — ví dụ sản phẩm 2: SKU052 = 0 đứng
+  // trước SKU-002 = 149. Các chip biến thể cũng không chip nào sáng vì SKU rỗng
+  // không khớp giá trị nào. Ở đây hỏi tồn kho từng SKU rồi chọn cái đầu tiên còn hàng.
+  useEffect(() => {
+    if (skus.length < 2 || skuPickedByUser) return;
+
+    let cancelled = false;
+    const pickInStockSku = async () => {
+      const stocks = await Promise.all(
+        skus.map(async (sku: any) => {
+          try {
+            const res = await inventoryApi.getStoreAvailability(sku.id);
+            const stores = res.data || [];
+            const total = stores.reduce(
+              (sum, store) => sum + (store.quantity ?? (store.availabilityStatus === 'IN_STOCK' ? 1 : 0)),
+              0,
+            );
+            return { sku, total };
+          } catch {
+            return { sku, total: 0 };
+          }
+        }),
+      );
+
+      if (cancelled) return;
+      const firstInStock = stocks.find((entry) => entry.total > 0);
+      // Không có SKU nào còn hàng -> giữ nguyên lựa chọn hiện tại, trang vẫn báo hết hàng.
+      if (firstInStock) {
+        setSelectedSku(firstInStock.sku);
+        if (firstInStock.sku.imageUrl) setSelectedImage(firstInStock.sku.imageUrl);
+      }
+    };
+
+    pickInStockSku();
+    return () => { cancelled = true; };
+  }, [skus, skuPickedByUser]);
 
   // ── Fetch store availability ────────────
   useEffect(() => {
@@ -274,6 +318,7 @@ export default function ProductDetail() {
 
           {/* SKU Selector */}
           <SkuSelector skus={skus} selectedSku={selectedSku} onSelectSku={(sku) => {
+            setSkuPickedByUser(true);
             setSelectedSku(sku);
             setSelectedImage(sku?.imageUrl || product.image);
           }} />
