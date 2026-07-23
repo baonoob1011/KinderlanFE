@@ -133,6 +133,9 @@ export default function AdminDashboard() {
 
   // Revenue by month (last 6 months from order data, NET = gross - refunds)
   const MONTH_NAMES = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12'];
+  // Bản sao của FinancialService.REVENUE_STATUSES (order-service). Loại PENDING (chưa
+  // trả tiền) và CANCELLED (đã huỷ); tiền hoàn trừ riêng ở phần returns bên dưới.
+  const REVENUE_STATUSES = ['PAID', 'SHIPPING', 'DELIVERED', 'COMPLETED'];
   const revenueByMonth = (() => {
     const months: Record<string, number> = {};
     const now = new Date();
@@ -141,9 +144,13 @@ export default function AdminDashboard() {
       const key = `${MONTH_NAMES[d.getMonth()]}/${d.getFullYear().toString().slice(-2)}`;
       months[key] = 0;
     }
-    // Add gross revenue from delivered orders only
+    // Cộng doanh thu gộp. Phải khớp ĐÚNG FinancialService.REVENUE_STATUSES của backend
+    // (PAID, SHIPPING, DELIVERED, COMPLETED) — trước đây chỉ đếm 'DELIVERED', nên đơn
+    // thanh toán VNPay xong (status = PAID) không lên biểu đồ, dù thẻ KPI phía trên lấy
+    // từ /api/v1/financial/overview đã tính. Hai chỗ cùng gọi là "doanh thu" mà ra số
+    // khác nhau.
     allOrders.forEach(o => {
-      if (o.orderStatus !== 'DELIVERED') return;
+      if (!REVENUE_STATUSES.includes(o.orderStatus)) return;
       const date = new Date(o.createdAt || o.orderDate);
       const key = `${MONTH_NAMES[date.getMonth()]}/${date.getFullYear().toString().slice(-2)}`;
       if (months[key] !== undefined) months[key] += (o.totalAmount || 0);
