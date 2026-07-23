@@ -113,15 +113,6 @@ export const authenticatedFetch = async (
         Authorization: `Bearer ${accessToken}`,
       };
     }
-    console.log(
-      "[AUTH DEBUG]",
-      options.method || "GET",
-      url,
-      "token?",
-      !!accessToken,
-      "token prefix:",
-      accessToken?.substring(0, 20),
-    );
   }
 
   let response = await fetch(url, options);

@@ -30,9 +30,12 @@ export default function AdminBlogManagement() {
     const [isLoadingList, setIsLoadingList] = useState(false);
     const [searchKeyword, setSearchKeyword] = useState("");
     const [filterStatus, setFilterStatus] = useState<"all" | "published" | "draft">("all");
+    const [filterCategoryId, setFilterCategoryId] = useState<string>("");
     const [currentPage, setCurrentPage] = useState(0);
     const [totalPages, setTotalPages] = useState(1);
     const [totalElements, setTotalElements] = useState(0);
+    const [publishedCount, setPublishedCount] = useState(0);
+    const [draftCount, setDraftCount] = useState(0);
     const PAGE_SIZE = 10;
 
     // ── Category state ──
@@ -60,20 +63,31 @@ export default function AdminBlogManagement() {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // ── Fetch posts ──
-    const fetchPosts = useCallback(async (page = 0, keyword = "") => {
+    // Tìm kiếm / lọc danh mục / lọc trạng thái đều đẩy xuống blogApi để việc phân
+    // trang tính trên tập ĐÃ lọc — trước đây lọc sau khi cắt trang nên trang có thể
+    // trống dù vẫn còn kết quả ở trang sau.
+    const fetchPosts = useCallback(async (page = 0) => {
         setIsLoadingList(true);
         try {
-            const result = await blogApi.getAdminBlogs({ page, size: PAGE_SIZE, keyword });
+            const result = await blogApi.getAdminBlogs({
+                page,
+                size: PAGE_SIZE,
+                keyword: searchKeyword,
+                categoryId: filterCategoryId ? Number(filterCategoryId) : null,
+                status: filterStatus === "all" ? null : filterStatus === "published",
+            });
             setPosts(result.content);
             setTotalPages(result.totalPages);
             setTotalElements(result.totalElements);
+            setPublishedCount(result.publishedCount);
+            setDraftCount(result.draftCount);
             setCurrentPage(result.number);
         } catch (err) {
             toast.error("Không thể tải danh sách blog.");
         } finally {
             setIsLoadingList(false);
         }
-    }, []);
+    }, [searchKeyword, filterCategoryId, filterStatus]);
 
     // ── Fetch categories ──
     const fetchCategories = useCallback(async () => {
@@ -88,12 +102,14 @@ export default function AdminBlogManagement() {
         }
     }, []);
 
-    useEffect(() => { fetchPosts(0); fetchCategories(); }, [fetchPosts, fetchCategories]);
+    useEffect(() => { fetchCategories(); }, [fetchCategories]);
 
+    // fetchPosts đổi identity khi keyword/danh mục/trạng thái đổi -> effect này lo cả
+    // lần tải đầu lẫn mọi lần lọc, luôn quay về trang 0. Debounce cho ô tìm kiếm.
     useEffect(() => {
-        const t = setTimeout(() => fetchPosts(0, searchKeyword), 400);
+        const t = setTimeout(() => fetchPosts(0), 300);
         return () => clearTimeout(t);
-    }, [searchKeyword, fetchPosts]);
+    }, [fetchPosts]);
 
     // ── Category CRUD ──
     const handleSaveCat = async () => {
@@ -160,7 +176,9 @@ export default function AdminBlogManagement() {
     const openCreate = () => { resetForm(); setViewMode("create"); };
     const openEdit = (post: BlogItem) => {
         setEditingPost(post);
-        setFormData({ title: post.title, content: post.content, categoryId: String(post.categoryId), imageUrl: post.imageUrl, status: post.status });
+        // categoryId có thể null (bài chưa gán danh mục) -> "" để select về mục trống,
+        // không phải chuỗi "null" khiến dropdown mất giá trị đang chọn.
+        setFormData({ title: post.title, content: post.content, categoryId: post.categoryId != null ? String(post.categoryId) : "", imageUrl: post.imageUrl, status: post.status });
         setImageFile(null);
         setImagePreview(post.imageUrl || "");
         setViewMode("edit");
@@ -226,10 +244,9 @@ export default function AdminBlogManagement() {
 
     const handleToggleStatus = async (post: BlogItem) => {
         try {
-            await blogApi.updateBlog(post.blogId, {
-                title: post.title, content: post.content,
-                categoryId: post.categoryId, imageUrl: post.imageUrl, status: !post.status,
-            });
+            // Dùng endpoint chuyên dụng thay vì PUT cả bài — tránh ghi đè nội dung
+            // bằng dữ liệu đã cắt bớt của bảng danh sách.
+            await blogApi.toggleStatus(post.blogId);
             toast.success(!post.status ? "Đã đăng bài viết." : "Đã chuyển về Nháp.");
             await fetchPosts(currentPage);
         } catch (err) {
@@ -237,13 +254,10 @@ export default function AdminBlogManagement() {
         }
     };
 
-    const filtered = posts.filter((p) => {
-        if (filterStatus === "published") return p.status === true;
-        if (filterStatus === "draft") return p.status === false;
-        return true;
-    });
+    // Lọc đã làm ở tầng API (trên toàn bộ danh sách, trước khi phân trang).
+    const filtered = posts;
 
-    const stats = { total: totalElements, published: posts.filter((p) => p.status).length, draft: posts.filter((p) => !p.status).length };
+    const stats = { total: publishedCount + draftCount, published: publishedCount, draft: draftCount };
 
     // ╔═══════════════════════════╗
     // ║        FORM VIEW          ║
@@ -407,7 +421,7 @@ export default function AdminBlogManagement() {
                 </div>
                 {activeTab === "posts" && (
                     <div className="flex gap-2">
-                        <Button variant="outline" onClick={() => fetchPosts(currentPage, searchKeyword)} disabled={isLoadingList}>
+                        <Button variant="outline" onClick={() => fetchPosts(currentPage)} disabled={isLoadingList}>
                             <RefreshCw className={`w-4 h-4 mr-1.5 ${isLoadingList ? "animate-spin" : ""}`} />Làm mới
                         </Button>
                         <Button onClick={openCreate} className="bg-[#AF140B] hover:bg-[#8B0000] text-white">
@@ -446,8 +460,8 @@ export default function AdminBlogManagement() {
                     <div className="grid grid-cols-3 gap-4">
                         {[
                             { label: "Tổng bài viết", value: stats.total, icon: FileText, color: "text-blue-600 bg-blue-50" },
-                            { label: "Đã đăng (trang này)", value: stats.published, icon: Eye, color: "text-green-600 bg-green-50" },
-                            { label: "Nháp (trang này)", value: stats.draft, icon: EyeOff, color: "text-gray-500 bg-gray-100" },
+                            { label: "Đã đăng", value: stats.published, icon: Eye, color: "text-green-600 bg-green-50" },
+                            { label: "Nháp", value: stats.draft, icon: EyeOff, color: "text-gray-500 bg-gray-100" },
                         ].map((s) => (
                             <Card key={s.label} className="border border-gray-100">
                                 <CardContent className="pt-5 pb-4">
@@ -470,6 +484,16 @@ export default function AdminBlogManagement() {
                             <Input placeholder="Tìm kiếm bài viết..." value={searchKeyword}
                                 onChange={(e) => setSearchKeyword(e.target.value)} className="pl-9" />
                         </div>
+                        <select
+                            value={filterCategoryId}
+                            onChange={(e) => setFilterCategoryId(e.target.value)}
+                            className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white text-gray-600 focus:outline-none focus:ring-2 focus:ring-[#AF140B]/30 focus:border-[#AF140B] sm:w-56"
+                        >
+                            <option value="">Tất cả danh mục</option>
+                            {categories.map((cat) => (
+                                <option key={cat.id} value={cat.id}>{cat.name}</option>
+                            ))}
+                        </select>
                         <div className="flex gap-2">
                             {(["all", "published", "draft"] as const).map((s) => (
                                 <button key={s} onClick={() => setFilterStatus(s)}
@@ -536,7 +560,7 @@ export default function AdminBlogManagement() {
                                             <td className="px-4 py-3 text-gray-500 text-xs">
                                                 <span className="flex items-center gap-1">
                                                     <Calendar className="w-3 h-3" />
-                                                    {new Date(post.createdAt).toLocaleDateString("vi-VN")}
+                                                    {post.createdAt ? new Date(post.createdAt).toLocaleDateString("vi-VN") : "—"}
                                                 </span>
                                             </td>
                                             <td className="px-4 py-3">
@@ -556,9 +580,9 @@ export default function AdminBlogManagement() {
                             <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 bg-gray-50/50">
                                 <p className="text-xs text-gray-500">Trang {currentPage + 1} / {totalPages} · {totalElements} bài viết</p>
                                 <div className="flex gap-1">
-                                    <button disabled={currentPage === 0 || isLoadingList} onClick={() => fetchPosts(currentPage - 1, searchKeyword)}
+                                    <button disabled={currentPage === 0 || isLoadingList} onClick={() => fetchPosts(currentPage - 1)}
                                         className="p-1.5 rounded border border-gray-200 hover:bg-white disabled:opacity-40 transition-colors"><Prev className="w-4 h-4" /></button>
-                                    <button disabled={currentPage >= totalPages - 1 || isLoadingList} onClick={() => fetchPosts(currentPage + 1, searchKeyword)}
+                                    <button disabled={currentPage >= totalPages - 1 || isLoadingList} onClick={() => fetchPosts(currentPage + 1)}
                                         className="p-1.5 rounded border border-gray-200 hover:bg-white disabled:opacity-40 transition-colors"><Next className="w-4 h-4" /></button>
                                 </div>
                             </div>

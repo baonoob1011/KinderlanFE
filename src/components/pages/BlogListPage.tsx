@@ -43,7 +43,10 @@ export default function BlogListPage() {
         if (cats.length > 0) {
           setCategories(cats);
         } else {
-          const uniqueNames = Array.from(new Set(blogs.map((b) => b.categoryName).filter(Boolean)));
+          // categoryName có thể null (bài chưa gán danh mục) -> lọc bỏ trước khi dựng list.
+          const uniqueNames = Array.from(
+            new Set(blogs.map((b) => b.categoryName).filter((n): n is string => !!n)),
+          );
           setCategories(uniqueNames.map((name, i) => ({ id: i + 1, name })));
         }
       })
@@ -56,7 +59,8 @@ export default function BlogListPage() {
       ? blogList
       : blogList.filter((b) => b.categoryName === selectedCategory);
 
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return "";
     const date = new Date(dateString);
     return date.toLocaleDateString("vi-VN", {
       day: "2-digit",

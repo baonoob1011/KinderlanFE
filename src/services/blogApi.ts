@@ -1,22 +1,34 @@
 // Blog API Service
 // Uses api.get/post/put/delete (same pattern as productApi.ts)
+//
+// Backend (product-service BlogController) luôn bọc kết quả trong BaseResponse:
+//   { timestamp, statusCode, message, data, success }
+// => MỌI chỗ đọc dữ liệu phải lấy `res.data`, không phải `res`.
+//
+// Thêm nữa, BlogResponse của backend dùng field `id` + `authorEmail`, KHÔNG có
+// `blogId` / `accountId` / `authorName` / `imageUrl` như type cũ khai báo. Vì vậy
+// mọi response đều đi qua `toBlogItem()` để chuẩn hoá về một shape duy nhất.
 
 import api from "./api";
 
 // --- Types ---
 
 export interface BlogItem {
+  /** Alias của `id` từ backend — giữ tên cũ để component không phải đổi. */
   blogId: number;
-  accountId: number;
-  authorName: string;
+  id: number;
+  authorEmail: string | null;
+  /** Backend chưa trả tên tác giả; fallback về authorEmail. */
+  authorName: string | null;
   title: string;
   content: string;
-  categoryId: number;
-  categoryName: string;
+  categoryId: number | null;
+  categoryName: string | null;
   status: boolean;
-  publishedAt: string;
-  createdAt: string;
+  publishedAt: string | null;
+  createdAt: string | null;
   updatedAt: string | null;
+  /** Backend chưa lưu ảnh bìa cho blog -> luôn rỗng cho tới khi có field này. */
   imageUrl: string;
   timeRead: number;
 }
@@ -29,25 +41,64 @@ export interface AdminBlogPageResponse {
   number: number;
   first: boolean;
   last: boolean;
+  /** Đếm trên TOÀN BỘ danh sách (không chỉ trang hiện tại). */
+  publishedCount: number;
+  draftCount: number;
 }
 
 export interface CreateBlogPayload {
   title: string;
   content: string;
-  categoryId: number;
+  categoryId: number | null;
   imageUrl?: string;
   timeRead?: number;
   status?: boolean;
 }
 
-// Helper to normalize blog list responses
+// --- Helpers ---
+
+/** Bóc BaseResponse: { data: ... } -> ...; chấp nhận cả payload trần. */
+const unwrap = (res: any): any =>
+  res && typeof res === "object" && "data" in res ? res.data : res;
+
+/** Chuẩn hoá 1 bản ghi backend -> BlogItem. */
+const toBlogItem = (raw: any): BlogItem => {
+  const id = Number(raw?.id ?? raw?.blogId ?? 0);
+  return {
+    blogId: id,
+    id,
+    authorEmail: raw?.authorEmail ?? null,
+    authorName: raw?.authorName ?? raw?.authorEmail ?? null,
+    title: raw?.title ?? "",
+    content: raw?.content ?? "",
+    categoryId: raw?.categoryId ?? null,
+    categoryName: raw?.categoryName ?? null,
+    // status có thể về dạng boolean hoặc chuỗi "true" tuỳ serializer.
+    status: raw?.status === true || raw?.status === "true",
+    publishedAt: raw?.publishedAt ?? null,
+    createdAt: raw?.createdAt ?? null,
+    updatedAt: raw?.updatedAt ?? null,
+    imageUrl: raw?.imageUrl ?? "",
+    timeRead: Number(raw?.timeRead ?? 0),
+  };
+};
+
+/**
+ * Lấy mảng blog từ mọi shape backend có thể trả:
+ *   [...]                      (hiếm)
+ *   { data: [...] }            (BaseResponse<List<BlogResponse>>) ← thực tế
+ *   { data: { content: [...] } } / { content: [...] }  (nếu sau này đổi sang Page)
+ */
 const normalizeBlogs = (res: any): BlogItem[] => {
-  if (Array.isArray(res)) return res;
-  if (res?.data && Array.isArray(res.data)) return res.data;
-  if (res?.data?.content && Array.isArray(res.data.content))
-    return res.data.content;
-  if (res?.content && Array.isArray(res.content)) return res.content;
-  return [];
+  const raw = unwrap(res);
+  const arr = Array.isArray(raw)
+    ? raw
+    : Array.isArray(raw?.content)
+      ? raw.content
+      : Array.isArray(raw?.items)
+        ? raw.items
+        : [];
+  return arr.map(toBlogItem);
 };
 
 // --- API ---
@@ -55,72 +106,83 @@ const normalizeBlogs = (res: any): BlogItem[] => {
 export const blogApi = {
   /**
    * [PUBLIC] Get published blogs
-   * GET /api/v1/blogs?page=0&size=20
+   * GET /api/v1/blogs
    */
   getBlogs: async (page = 0, size = 20): Promise<BlogItem[]> => {
-    const res = await api.get(`/api/v1/blogs?page=${page}&size=${size}`);
-    return normalizeBlogs(res);
+    // Backend chưa hỗ trợ phân trang cho endpoint này -> cắt trang ở client.
+    const all = normalizeBlogs(await api.get(`/api/v1/blogs`));
+    const start = page * size;
+    return all.slice(start, start + size);
   },
 
   /**
-   * [ADMIN] Get all blogs (paginated, with search)
-   * GET /api/v1/blogs/admin?page=0&size=20&keyword=...
+   * [ADMIN] Get all blogs (kể cả bài nháp).
+   * GET /api/v1/blogs/admin — nếu không truy cập được (chưa đăng nhập admin,
+   * 401/403/404) thì fallback sang GET /api/v1/blogs để trang vẫn có dữ liệu.
+   *
+   * Backend trả BaseResponse<List<BlogResponse>> — `data` là MẢNG THUẦN, không
+   * phải Page. Code cũ đọc `res.content` (trên envelope!) nên luôn ra [] dù DB có
+   * bài, khiến bảng admin trống và "Tổng bài viết" luôn = 0.
    */
   getAdminBlogs: async (params?: {
     page?: number;
     size?: number;
     keyword?: string;
+    categoryId?: number | null;
+    /** true = chỉ bài đã đăng, false = chỉ nháp, null/undefined = tất cả. */
+    status?: boolean | null;
   }): Promise<AdminBlogPageResponse> => {
-    const q = new URLSearchParams();
-    q.set("page", String(params?.page ?? 0));
-    q.set("size", String(params?.size ?? 20));
-    if (params?.keyword) q.set("keyword", params.keyword);
-
-    const res = await api.get(`/api/v1/blogs/admin?${q}`);
-    const raw = res?.data ?? res;
-
-    // Backend GET /api/v1/blogs/admin trả BaseResponse<List<BlogResponse>> — data là
-    // MẢNG THUẦN, KHÔNG phải Page. Code cũ đọc raw.content nên luôn ra [] dù DB có bài,
-    // khiến bảng admin trống trơn và "Tổng bài viết" luôn = 0.
-    // Vẫn giữ nhánh đọc Page phòng khi backend đổi sang phân trang thật.
-    if (Array.isArray(raw)) {
-      const page = params?.page ?? 0;
-      const size = params?.size ?? 20;
-      const keyword = (params?.keyword ?? "").trim().toLowerCase();
-
-      // Backend chưa hỗ trợ keyword/page/size -> lọc và cắt trang ở client.
-      const filtered = keyword
-        ? raw.filter(
-            (b: any) =>
-              String(b.title ?? "")
-                .toLowerCase()
-                .includes(keyword) ||
-              String(b.content ?? "")
-                .toLowerCase()
-                .includes(keyword),
-          )
-        : raw;
-
-      const start = page * size;
-      return {
-        content: filtered.slice(start, start + size),
-        totalElements: filtered.length,
-        totalPages: Math.max(1, Math.ceil(filtered.length / size)),
-        size,
-        number: page,
-        first: page === 0,
-        last: start + size >= filtered.length,
-      };
+    let all: BlogItem[];
+    try {
+      all = normalizeBlogs(await api.get(`/api/v1/blogs/admin`));
+    } catch {
+      all = normalizeBlogs(await api.get(`/api/v1/blogs`));
     }
 
+    const page = params?.page ?? 0;
+    const size = params?.size ?? 20;
+    const keyword = (params?.keyword ?? "").trim().toLowerCase();
+    const categoryId = params?.categoryId ?? null;
+
+    // Backend chưa hỗ trợ keyword/categoryId/page/size -> lọc & cắt trang ở client.
+    let filtered = all;
+    if (keyword) {
+      filtered = filtered.filter(
+        (b) =>
+          b.title.toLowerCase().includes(keyword) ||
+          b.content.toLowerCase().includes(keyword) ||
+          (b.categoryName ?? "").toLowerCase().includes(keyword),
+      );
+    }
+    if (categoryId != null) {
+      filtered = filtered.filter((b) => Number(b.categoryId) === categoryId);
+    }
+
+    // Đếm Đã đăng / Nháp TRƯỚC khi lọc theo trạng thái, nếu không một trong hai
+    // ô thống kê sẽ luôn bằng 0 khi người dùng bấm tab "Đã đăng"/"Nháp".
+    const publishedCount = filtered.filter((b) => b.status).length;
+    const draftCount = filtered.length - publishedCount;
+
+    if (params?.status != null) {
+      filtered = filtered.filter((b) => b.status === params.status);
+    }
+
+    const totalPages = Math.max(1, Math.ceil(filtered.length / size));
+    // Nếu bộ lọc thu hẹp kết quả khiến trang hiện tại vượt quá cuối danh sách,
+    // trả về trang cuối thay vì một trang rỗng.
+    const safePage = Math.min(page, totalPages - 1);
+    const safeStart = safePage * size;
+
     return {
-      content: raw?.content ?? raw?.items ?? [],
-      totalElements: raw?.totalElements ?? 0,
-      totalPages: raw?.totalPages ?? 1,
-      size: raw?.size ?? 20,
-      number: raw?.number ?? 0,
-      first: raw?.first ?? true,
-      last: raw?.last ?? true,
+      content: filtered.slice(safeStart, safeStart + size),
+      totalElements: filtered.length,
+      totalPages,
+      size,
+      number: safePage,
+      first: safePage === 0,
+      last: safeStart + size >= filtered.length,
+      publishedCount,
+      draftCount,
     };
   },
 
@@ -129,8 +191,7 @@ export const blogApi = {
    * GET /api/v1/blogs/{id}
    */
   getBlogById: async (id: number | string): Promise<BlogItem> => {
-    const res = await api.get(`/api/v1/blogs/${id}`);
-    return res?.data ?? res;
+    return toBlogItem(unwrap(await api.get(`/api/v1/blogs/${id}`)));
   },
 
   /**
@@ -138,8 +199,7 @@ export const blogApi = {
    * POST /api/v1/blogs
    */
   createBlog: async (payload: CreateBlogPayload): Promise<BlogItem> => {
-    const res = await api.post("/api/v1/blogs", payload);
-    return res?.data ?? res;
+    return toBlogItem(unwrap(await api.post("/api/v1/blogs", payload)));
   },
 
   /**
@@ -150,8 +210,15 @@ export const blogApi = {
     id: number,
     payload: CreateBlogPayload,
   ): Promise<BlogItem> => {
-    const res = await api.put(`/api/v1/blogs/${id}`, payload);
-    return res?.data ?? res;
+    return toBlogItem(unwrap(await api.put(`/api/v1/blogs/${id}`, payload)));
+  },
+
+  /**
+   * [ADMIN] Bật/tắt xuất bản.
+   * PATCH /api/v1/blogs/{id}/status
+   */
+  toggleStatus: async (id: number): Promise<BlogItem> => {
+    return toBlogItem(unwrap(await api.patch(`/api/v1/blogs/${id}/status`, {})));
   },
 
   /**
