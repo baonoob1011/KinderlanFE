@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from "react";
 import api from "../../services/api";
 import { Link } from "react-router-dom";
+import { resolveImageUrl } from "../../services/imageUrl";
+
+const BRAND_PLACEHOLDER = "/placeholder-brand.png";
 
 export function BrandMarquee() {
   const [brands, setBrands] = useState<any[]>([]);
@@ -9,9 +12,7 @@ export function BrandMarquee() {
       try {
         const res = await api.get("/api/v1/brands");
 
-        console.log("Brands API:", res);
-
-        setBrands(res.data);
+        setBrands(Array.isArray(res) ? res : res.data || []);
       } catch (error) {
         console.error("Fetch brands error:", error);
       }
@@ -52,9 +53,16 @@ export function BrandMarquee() {
                 <div className="bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 p-6 border-2 border-gray-100 hover:border-[#AF140B] w-48 h-32 flex flex-col items-center justify-center group-hover:scale-105 transform">
 
                   <img
-                    src={brand.logoUrl}
+                    src={
+                      resolveImageUrl(brand.logoUrl) || BRAND_PLACEHOLDER
+                    }
                     alt={brand.name}
+                    loading="lazy"
                     className="h-10 mb-2 object-contain"
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.src = BRAND_PLACEHOLDER;
+                    }}
                   />
 
                   <p className="font-bold text-gray-800 text-center group-hover:text-[#AF140B] transition-colors">

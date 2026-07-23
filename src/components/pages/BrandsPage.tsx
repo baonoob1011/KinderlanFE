@@ -4,6 +4,9 @@ import { ArrowLeft } from "lucide-react";
 import ProductCard from "../shop/ProductCard";
 import Pagination from "../common/Pagination";
 import api from "../../services/api";
+import { resolveImageUrl } from "../../services/imageUrl";
+
+const BRAND_PLACEHOLDER = "/placeholder-brand.png";
 
 /* ===============================
    TYPES
@@ -12,6 +15,8 @@ interface Brand {
   id: number;
   name: string;
   origin?: string | null;
+  /** Backend trả về đúng field này (presigned S3 URL). */
+  logoUrl?: string | null;
 }
 
 interface Product {
@@ -150,8 +155,19 @@ export default function BrandsPage() {
             </Link>
 
             <div className="flex items-center gap-4">
-              <div className="h-20 w-20 bg-white rounded-xl flex items-center justify-center p-2">
-                <span className="text-3xl">🎁</span>
+              <div className="h-20 w-20 bg-white rounded-xl flex items-center justify-center p-2 overflow-hidden">
+                <img
+                  src={
+                    resolveImageUrl(currentBrand?.logoUrl) || BRAND_PLACEHOLDER
+                  }
+                  alt={brandName}
+                  loading="lazy"
+                  className="h-full w-full object-contain"
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = BRAND_PLACEHOLDER;
+                  }}
+                />
               </div>
 
               <div>
@@ -242,8 +258,19 @@ export default function BrandsPage() {
                 className="group"
               >
                 <div className="bg-white rounded-2xl shadow-md hover:shadow-xl transition-all overflow-hidden p-8 text-center border-2 border-gray-100 hover:border-[#AF140B]">
-                  <div className="brand-fallback h-20 w-20 mx-auto mb-4 rounded-xl bg-gray-100 flex items-center justify-center text-3xl">
-                    🎁
+                  <div className="h-20 w-20 mx-auto mb-4 rounded-xl bg-gray-100 flex items-center justify-center overflow-hidden p-2">
+                    <img
+                      src={
+                        resolveImageUrl(brand.logoUrl) || BRAND_PLACEHOLDER
+                      }
+                      alt={brand.name}
+                      loading="lazy"
+                      className="h-full w-full object-contain"
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = BRAND_PLACEHOLDER;
+                      }}
+                    />
                   </div>
 
                   <h3 className="font-bold text-gray-800 mb-2 group-hover:text-[#AF140B] transition-colors">

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
+import { resolveImageUrl } from "../../services/imageUrl";
 import { Card, CardContent } from "../ui/card";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -421,7 +422,7 @@ export default function AdminBrandManagement() {
                         <div className="w-10 h-10 bg-gray-50 rounded border border-gray-100 flex items-center justify-center overflow-hidden">
                           {brand.logoUrl ? (
                             <img
-                              src={brand.logoUrl}
+                              src={resolveImageUrl(brand.logoUrl)}
                               alt={brand.name}
                               className="w-full h-full object-contain"
                             />

@@ -15,7 +15,7 @@ import {
   Sparkles as SparklesIcon,
 } from "lucide-react";
 import { products } from "../../data/products";
-import { blogs } from "../../data/blogs";
+import { blogApi, BlogItem } from "../../services/blogApi";
 import NewsletterModal from "../common/NewsletterModal";
 import Logo from "../common/Logo";
 import { HeroSection } from "../HeroSection";
@@ -36,7 +36,11 @@ export default function HomePage() {
   const [newArrivalsLoading, setNewArrivalsLoading] = useState(true);
   const [featuredProducts, setFeaturedProducts] = useState<any[]>([]);
   const [featuredLoading, setFeaturedLoading] = useState(true);
-  const featuredBlogs = blogs.slice(0, 3);
+  // Trước đây lấy từ data/blogs.ts (seed tĩnh) nên trang chủ hiện bài không có thật,
+  // và link /blog/{id} trỏ theo id seed -> bấm vào ra bài khác hoặc 404. Giờ dùng
+  // đúng API mà trang "Xem tất cả" (/blog) đang dùng.
+  const [featuredBlogs, setFeaturedBlogs] = useState<BlogItem[]>([]);
+  const [blogsLoading, setBlogsLoading] = useState(true);
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat("vi-VN", {
@@ -45,7 +49,8 @@ export default function HomePage() {
     }).format(price);
   };
 
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return "";
     const date = new Date(dateString);
     return date.toLocaleDateString("vi-VN", {
       day: "2-digit",
@@ -53,12 +58,32 @@ export default function HomePage() {
       year: "numeric",
     });
   };
+
+  // Nội dung blog là HTML -> bỏ thẻ để lấy đoạn tóm tắt (giống BlogListPage).
+  const stripHtml = (html: string) => {
+    const tmp = document.createElement("div");
+    tmp.innerHTML = html;
+    return tmp.textContent || tmp.innerText || "";
+  };
   useEffect(() => {
     // fetchBrands();
     fetchCategories();
     fetchNewArrivals();
     fetchFeaturedProducts();
+    fetchFeaturedBlogs();
   }, []);
+
+  const fetchFeaturedBlogs = async () => {
+    try {
+      // getBlogs gọi GET /api/v1/blogs — chỉ trả bài đã xuất bản, kèm ảnh bìa.
+      setFeaturedBlogs(await blogApi.getBlogs(0, 3));
+    } catch (error) {
+      console.error("Fetch blogs error:", error);
+      setFeaturedBlogs([]);
+    } finally {
+      setBlogsLoading(false);
+    }
+  };
 
   // const fetchBrands = async () => {
   //   try {
@@ -300,40 +325,70 @@ export default function HomePage() {
             </Link>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-6">
-            {featuredBlogs.map((blog) => (
-              <Link
-                key={blog.id}
-                to={`/blog/${blog.id}`}
-                className="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-2xl hover:-translate-y-1 transition-all group border-2 border-gray-200 hover:border-[#AF140B]"
-              >
-                <div className="aspect-video overflow-hidden relative">
-                  <img
-                    src={blog.image}
-                    alt={blog.title}
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                  />
-                  <div className="absolute top-3 left-3 bg-[#AF140B] text-white px-3 py-1 rounded-full text-xs font-bold shadow-lg">
-                    {blog.category}
+          {blogsLoading ? (
+            <div className="grid md:grid-cols-3 gap-6">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="bg-white rounded-2xl shadow-lg overflow-hidden border-2 border-gray-200 animate-pulse"
+                >
+                  <div className="aspect-video bg-gray-200" />
+                  <div className="p-6 space-y-3">
+                    <div className="h-5 bg-gray-200 rounded w-3/4" />
+                    <div className="h-4 bg-gray-100 rounded" />
+                    <div className="h-4 bg-gray-100 rounded w-2/3" />
                   </div>
                 </div>
-                <div className="p-6">
-                  <h3 className="text-xl font-bold text-[#4A4A4A] mb-3 line-clamp-2 group-hover:text-[#AF140B] transition-colors">
-                    {blog.title}
-                  </h3>
-                  <p className="text-gray-600 mb-4 line-clamp-2 text-sm">
-                    {blog.excerpt}
-                  </p>
-                  <div className="flex items-center justify-between text-sm text-gray-500 pt-4 border-t border-gray-200">
-                    <span className="font-semibold">
-                      {blog.author}
-                    </span>
-                    <span>{formatDate(blog.date)}</span>
+              ))}
+            </div>
+          ) : featuredBlogs.length === 0 ? (
+            <p className="text-center text-gray-500 py-10">
+              Chưa có bài viết nào.
+            </p>
+          ) : (
+            <div className="grid md:grid-cols-3 gap-6">
+              {featuredBlogs.map((blog) => (
+                <Link
+                  key={blog.id}
+                  to={`/blog/${blog.id}`}
+                  className="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-2xl hover:-translate-y-1 transition-all group border-2 border-gray-200 hover:border-[#AF140B]"
+                >
+                  <div className="aspect-video overflow-hidden relative bg-gray-100">
+                    {blog.imageUrl ? (
+                      <img
+                        src={blog.imageUrl}
+                        alt={blog.title}
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <BookOpen className="size-10 text-gray-300" />
+                      </div>
+                    )}
+                    {blog.categoryName && (
+                      <div className="absolute top-3 left-3 bg-[#AF140B] text-white px-3 py-1 rounded-full text-xs font-bold shadow-lg">
+                        {blog.categoryName}
+                      </div>
+                    )}
                   </div>
-                </div>
-              </Link>
-            ))}
-          </div>
+                  <div className="p-6">
+                    <h3 className="text-xl font-bold text-[#4A4A4A] mb-3 line-clamp-2 group-hover:text-[#AF140B] transition-colors">
+                      {blog.title}
+                    </h3>
+                    <p className="text-gray-600 mb-4 line-clamp-2 text-sm">
+                      {stripHtml(blog.content)}
+                    </p>
+                    <div className="flex items-center justify-between text-sm text-gray-500 pt-4 border-t border-gray-200">
+                      <span className="font-semibold">
+                        {blog.authorName}
+                      </span>
+                      <span>{formatDate(blog.publishedAt ?? blog.createdAt)}</span>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
