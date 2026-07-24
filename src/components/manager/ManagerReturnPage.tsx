@@ -116,10 +116,8 @@ export default function ManagerReturnPage() {
     const [rejectDialog, setRejectDialog] = useState<ReturnResponseDTO | null>(null);
     const [rejectionReason, setRejectionReason] = useState('');
 
-    // Refund dialog
+    // Refund dialog — tiền LUÔN hoàn về Ví (không còn state chọn kênh/mã giao dịch tay).
     const [refundDialog, setRefundDialog] = useState<ReturnResponseDTO | null>(null);
-    const [bankTransactionCode, setBankTransactionCode] = useState('');
-    const [refundType, setRefundType] = useState<'BANK_TRANSFER' | 'E_GIFT'>('BANK_TRANSFER');
 
     // ─── Fetch ───────────────────────────────────────────
     const fetchReturns = async (pageNum = page) => {
@@ -228,24 +226,21 @@ export default function ManagerReturnPage() {
         }
     };
 
-    // REFUND — { refundType, bankTransactionCode? }
+    // REFUND — tiền LUÔN hoàn về Ví Kinderland của khách (backend tự credit + tự sinh mã giao
+    // dịch WALLET-TX-xxx). refundType giữ lại chỉ để khớp @NotBlank của DTO cũ, không còn quyết
+    // định kênh chuyển tiền như trước (BANK_TRANSFER/E_GIFT không còn ý nghĩa với luồng ví).
     const handleRefund = async () => {
         if (!refundDialog) return;
-        if (refundType === 'BANK_TRANSFER' && !bankTransactionCode.trim()) return;
         setActionLoading(true);
         setActionError(null);
         try {
-            const body: Record<string, string> = { refundType };
-            if (refundType === 'BANK_TRANSFER') body.bankTransactionCode = bankTransactionCode.trim();
-            await api.patch(`/api/v1/return-requests/${refundDialog.returnId}/refund`, body);
+            await api.patch(`/api/v1/return-requests/${refundDialog.returnId}/refund`, { refundType: 'WALLET' });
             setReturns(prev => prev.map(r => r.returnId === refundDialog.returnId
-                ? { ...r, returnStatus: 'REFUNDED' as ReturnStatus, refundType } : r));
+                ? { ...r, returnStatus: 'REFUNDED' as ReturnStatus, refundType: 'WALLET' } : r));
             if (selected?.returnId === refundDialog.returnId)
-                setSelected(prev => prev ? { ...prev, returnStatus: 'REFUNDED' as ReturnStatus, refundType } : null);
+                setSelected(prev => prev ? { ...prev, returnStatus: 'REFUNDED' as ReturnStatus, refundType: 'WALLET' } : null);
             setRefundDialog(null);
-            setBankTransactionCode('');
-            setRefundType('BANK_TRANSFER');
-            setActionSuccess('Đã hoàn tiền thành công!');
+            setActionSuccess('Đã hoàn tiền vào ví khách hàng thành công!');
             setTimeout(() => setActionSuccess(null), 3000);
         } catch (err: unknown) {
             setActionError(await parseApiError(err));
@@ -281,7 +276,7 @@ export default function ManagerReturnPage() {
             case 'RECEIVED':
                 return (
                     <Button size={size} className={`bg-emerald-600 hover:bg-emerald-700 text-white ${cls}`}
-                        onClick={() => { setRefundDialog(ret); setBankTransactionCode(''); setRefundType('BANK_TRANSFER'); }} disabled={actionLoading}>
+                        onClick={() => setRefundDialog(ret)} disabled={actionLoading}>
                         <DollarSign className="w-3 h-3 mr-1" />Hoàn tiền
                     </Button>
                 );
@@ -575,11 +570,8 @@ export default function ManagerReturnPage() {
                                         {selected.refundAmount != null && (
                                             <p><span className="text-gray-500">Số tiền:</span> <strong className="text-green-600">{formatMoney(selected.refundAmount)}</strong></p>
                                         )}
-                                        {selected.refundType && <p><span className="text-gray-500">Hình thức:</span> {selected.refundType}</p>}
-                                        {selected.bankName && <p><span className="text-gray-500">Ngân hàng:</span> {selected.bankName}</p>}
-                                        {selected.bankAccountNumber && <p><span className="text-gray-500">STK:</span> {selected.bankAccountNumber}</p>}
-                                        {selected.bankAccountName && <p><span className="text-gray-500">Chủ TK:</span> {selected.bankAccountName}</p>}
-                                        {selected.refundTransactionCode && <p><span className="text-gray-500">Mã GD:</span> <Badge variant="outline" className="font-mono text-xs">{selected.refundTransactionCode}</Badge></p>}
+                                        <p><span className="text-gray-500">Hoàn về:</span> {selected.refundType === 'WALLET' ? '👛 Ví Kinderland' : (selected.refundType || '—')}</p>
+                                        {selected.refundTransactionCode && <p><span className="text-gray-500">Mã giao dịch ví:</span> <Badge variant="outline" className="font-mono text-xs">{selected.refundTransactionCode}</Badge></p>}
                                         {selected.refundedAt && <p><span className="text-gray-500">Hoàn tiền lúc:</span> {formatDate(selected.refundedAt)}</p>}
                                     </CardContent>
                                 </Card>
@@ -627,87 +619,45 @@ export default function ManagerReturnPage() {
             </Dialog>
 
             {/* ─── Refund Dialog ──────────────────────────── */}
+            {/* Tiền LUÔN hoàn về Ví Kinderland (rule đã chốt) — không còn chọn kênh chuyển khoản
+                thủ công. Dialog chỉ còn là bước XÁC NHẬN trước một hành động cộng tiền thật. */}
             <Dialog open={!!refundDialog} onOpenChange={(open: boolean) => { if (!open) setRefundDialog(null); }}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Hoàn tiền yêu cầu {refundDialog?.returnCode || `#${refundDialog?.returnId}`}</DialogTitle>
+                        <DialogTitle>Xác nhận hoàn tiền</DialogTitle>
                         <DialogDescription>
                             {refundDialog?.customerName} — {refundDialog?.productName || refundDialog?.returnReason}
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-4 py-2">
-                        {/* Refund type selector */}
-                        <div>
-                            <label className="text-sm font-medium mb-2 block">Hình thức hoàn tiền *</label>
-                            <div className="flex gap-3">
-                                <button
-                                    type="button"
-                                    onClick={() => setRefundType('BANK_TRANSFER')}
-                                    className={`flex-1 py-2.5 px-3 rounded-lg border text-sm font-medium transition-all ${
-                                        refundType === 'BANK_TRANSFER'
-                                            ? 'bg-blue-600 text-white border-blue-600'
-                                            : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
-                                    }`}
-                                >
-                                    🏦 Chuyển khoản
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setRefundType('E_GIFT')}
-                                    className={`flex-1 py-2.5 px-3 rounded-lg border text-sm font-medium transition-all ${
-                                        refundType === 'E_GIFT'
-                                            ? 'bg-orange-500 text-white border-orange-500'
-                                            : 'bg-white text-gray-700 border-gray-300 hover:border-orange-400'
-                                    }`}
-                                >
-                                    🎁 E-Gift Card
-                                </button>
-                            </div>
+                    <div className="space-y-3 py-2 text-sm">
+                        <div className="flex justify-between">
+                            <span className="text-gray-500">Yêu cầu trả hàng:</span>
+                            <span className="font-medium">{refundDialog?.returnCode || `#${refundDialog?.returnId}`}</span>
                         </div>
-
-                        {/* Show bank info if available and BANK_TRANSFER selected */}
-                        {refundType === 'BANK_TRANSFER' && refundDialog?.bankName && (
-                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm space-y-1">
-                                <p className="font-semibold text-blue-700 mb-1">Thông tin ngân hàng KH:</p>
-                                <p><span className="text-gray-600">Ngân hàng:</span> {refundDialog.bankName}</p>
-                                {refundDialog.bankAccountNumber && <p><span className="text-gray-600">STK:</span> {refundDialog.bankAccountNumber}</p>}
-                                {refundDialog.bankAccountName && <p><span className="text-gray-600">Chủ TK:</span> {refundDialog.bankAccountName}</p>}
-                            </div>
-                        )}
-
-                        {/* E-Gift notice */}
-                        {refundType === 'E_GIFT' && (
-                            <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 text-sm">
-                                <p className="font-semibold text-orange-700 mb-1">🎁 Hoàn tiền bằng E-Gift Card</p>
-                                <p className="text-gray-600">Hệ thống sẽ tự động tạo và gửi E-Gift Card cho khách hàng qua email.</p>
-                            </div>
-                        )}
-
                         {refundDialog?.refundAmount != null && (
-                            <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm">
-                                <span className="text-gray-600">Số tiền hoàn: </span>
-                                <strong className="text-green-700">{formatMoney(refundDialog.refundAmount)}</strong>
+                            <div className="flex justify-between items-center bg-green-50 border border-green-200 rounded-lg p-3">
+                                <span className="text-gray-600">Số tiền hoàn:</span>
+                                <strong className="text-green-700 text-lg">{formatMoney(refundDialog.refundAmount)}</strong>
                             </div>
                         )}
-
-                        {refundType === 'BANK_TRANSFER' && (
-                            <div>
-                                <label className="text-sm font-medium mb-1 block">Mã giao dịch ngân hàng *</label>
-                                <Input value={bankTransactionCode} onChange={e => setBankTransactionCode(e.target.value)}
-                                    placeholder="Nhập mã giao dịch chuyển khoản..." />
-                                <p className="text-xs text-gray-400 mt-1">Mã xác nhận chuyển khoản hoàn tiền cho khách hàng</p>
-                            </div>
-                        )}
+                        <div className="flex justify-between">
+                            <span className="text-gray-500">Hoàn về:</span>
+                            <span className="font-semibold text-[#AF140B]">👛 Ví Kinderland</span>
+                        </div>
+                        <p className="text-xs text-gray-500 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                            Thao tác này sẽ cộng tiền TRỰC TIẾP vào ví khách hàng ngay khi xác nhận —
+                            không thể hoàn tác qua màn hình này.
+                        </p>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setRefundDialog(null)} disabled={actionLoading}>Hủy</Button>
                         <Button
                             onClick={handleRefund}
-                            disabled={actionLoading || (refundType === 'BANK_TRANSFER' && !bankTransactionCode.trim())}
+                            disabled={actionLoading}
                             className="bg-emerald-600 hover:bg-emerald-700 text-white"
                         >
                             {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <DollarSign className="w-4 h-4 mr-2" />}
-                            Xác nhận hoàn tiền
+                            Xác nhận hoàn tiền vào ví
                         </Button>
                     </DialogFooter>
                 </DialogContent>

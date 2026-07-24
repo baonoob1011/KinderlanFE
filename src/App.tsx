@@ -63,6 +63,7 @@ import OrderHistory from './components/customer/OrderHistory';
 import ReturnRequestPage from './components/customer/ReturnRequestPage';
 import CustomerProfile from './components/customer/CustomerProfile';
 import LoyaltyPoints from './components/customer/LoyaltyPoints';
+import WalletPage from './components/customer/WalletPage';
 import Wishlist from './components/pages/Wishlist';
 
 
@@ -320,6 +321,14 @@ function AppContent() {
                     element={
                       <ProtectedRoute>
                         <LoyaltyPoints />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/account/wallet"
+                    element={
+                      <ProtectedRoute>
+                        <WalletPage />
                       </ProtectedRoute>
                     }
                   />

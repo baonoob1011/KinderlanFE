@@ -15,7 +15,8 @@ import {
   CreditCard,
   Heart,
   Bell,
-  Settings
+  Settings,
+  Wallet as WalletIcon
 } from 'lucide-react';
 
 // Đơn còn đang chạy vs đã xong — theo OrderStatus của order-service.
@@ -270,6 +271,23 @@ export default function CustomerDashboard() {
                   </span>
                   <span className="text-sm text-gray-500">điểm</span>
                 </div>
+              </CardContent>
+            </Link>
+          </Card>
+
+          {/* Wallet */}
+          <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+            <Link to="/account/wallet">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <WalletIcon className="w-5 h-5 text-[#AF140B]" />
+                  Ví Kinderland
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-gray-600 mb-3">
+                  Thanh toán nhanh + nhận hoàn tiền tự động
+                </p>
               </CardContent>
             </Link>
           </Card>

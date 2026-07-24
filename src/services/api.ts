@@ -700,7 +700,25 @@ export const api = {
       const body: any = { paymentMethod };
       if (pointsToUse > 0) body.pointsToUse = pointsToUse;
       console.log("Initiating checkout through api.post:", endpoint, body);
-      return await api.post(endpoint, body);
+      // KHÔNG dùng api.post() ở đây: nó chỉ ném "HTTP error! status: 400" và VỨT BỎ message
+      // thật của backend (vd "Số dư ví không đủ..."). Checkout là chỗ người dùng CẦN thấy lý do
+      // cụ thể để biết đổi phương thức thanh toán hay nạp thêm tiền — không thể chỉ báo "lỗi 400".
+      const response = await authenticatedFetch(`${API_BASE_URL}${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        let message = `HTTP error! status: ${response.status}`;
+        try {
+          const errJson = await response.json();
+          if (errJson?.message) message = errJson.message;
+        } catch {
+          // body không phải JSON hợp lệ -> giữ message mặc định ở trên
+        }
+        throw new Error(message);
+      }
+      return await response.json();
     } catch (error) {
       console.error("Checkout order API error:", error);
       throw error;

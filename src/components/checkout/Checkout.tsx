@@ -6,6 +6,7 @@ import api from '../../services/api';
 import { toast } from 'sonner';
 import { accountApi, AddressRequest } from '../../services/accountApi';
 import { loyaltyApi } from '../../services/loyaltyApi';
+import { walletApi } from '../../services/walletApi';
 
 const EMPTY_ADDRESS: AddressRequest = {
   street: '',
@@ -45,12 +46,33 @@ export default function Checkout() {
   const [applyingVoucher, setApplyingVoucher] = useState(false);
   /** Subtotal gần nhất đã được gửi đi validate lại — chặn bắn trùng request. */
   const revalidatedSubtotalRef = useRef<number | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'COD' | 'BANK' | 'CARD'>('COD');
+  const [paymentMethod, setPaymentMethod] = useState<'COD' | 'BANK' | 'CARD' | 'WALLET'>('COD');
 
   // Loyalty points state
   const [loyaltyPoints, setLoyaltyPoints] = useState(0);
   const [useLoyaltyPoints, setUseLoyaltyPoints] = useState(false);
   const [loyaltyLoading, setLoyaltyLoading] = useState(true);
+
+  // Wallet balance — hiển thị ở option "Ví Kinderland" + disable option khi không đủ tiền.
+  // Số dư CHỈ để hiển thị/disable; số tiền thanh toán thật do backend tự tính khi checkout
+  // (xem handlePlaceOrder — payload không gửi amount).
+  const [walletBalance, setWalletBalance] = useState<number | null>(null);
+  const [walletLoading, setWalletLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchWallet = async () => {
+      try {
+        const data = await walletApi.getMyWallet();
+        setWalletBalance(data.balance);
+      } catch {
+        setWalletBalance(null);
+      } finally {
+        setWalletLoading(false);
+      }
+    };
+    if (user) fetchWallet();
+    else setWalletLoading(false);
+  }, [user]);
 
   useEffect(() => {
     const fetchAddresses = async () => {
@@ -164,6 +186,16 @@ export default function Checkout() {
 
   const total = Math.max(0, subtotal + shippingFee - discount - loyaltyDiscount);
 
+  // Nếu đang chọn Ví mà tổng tiền tăng lên (đổi voucher, bỏ điểm...) khiến số dư không còn đủ,
+  // tự chuyển về COD thay vì để nút "Đặt hàng" âm thầm thất bại vì lý do khách không thấy rõ.
+  useEffect(() => {
+    if (paymentMethod === 'WALLET' && walletBalance !== null && walletBalance < total) {
+      setPaymentMethod('COD');
+      toast.warning('Số dư ví không còn đủ cho đơn này, đã chuyển về Thanh toán khi nhận hàng.');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [total]);
+
   const handleApplyVoucher = async () => {
     setVoucherError('');
     setApplyingVoucher(true);
@@ -274,18 +306,23 @@ export default function Checkout() {
       // KHÔNG dùng ternary fallback: `x === 'CARD' ? 'VNPAY' : 'COD'` biến MỌI giá trị lạ
       // (kể cả 'BANK' hoặc typo) thành COD một cách âm thầm — người dùng tưởng đã chọn
       // thanh toán online nhưng đơn lại được tạo là COD.
-      const mapPaymentMethod = (ui: 'COD' | 'BANK' | 'CARD'): 'COD' | 'VNPAY' => {
+      const mapPaymentMethod = (ui: 'COD' | 'BANK' | 'CARD' | 'WALLET'): 'COD' | 'VNPAY' | 'WALLET' => {
         switch (ui) {
           case 'COD':
             return 'COD';
           case 'CARD':
             return 'VNPAY';
+          case 'WALLET':
+            return 'WALLET';
           default:
             throw new Error('Phương thức thanh toán không được hỗ trợ');
         }
       };
       const checkoutPaymentMethod = mapPaymentMethod(paymentMethod);
       try {
+        // Payload CHỈ có paymentMethod + pointsToUse (loyaltyDiscount ở đây chỉ để backend biết
+        // SỐ ĐIỂM muốn dùng, không phải số tiền — số tiền cuối cùng backend tự chốt lại toàn bộ
+        // từ order đã lưu, WALLET không hề khác VNPAY/COD ở khoản này).
         const checkoutRes = await api.checkoutOrder(orderId, checkoutPaymentMethod, loyaltyDiscount);
 
         if (paymentMethod === 'CARD') {
@@ -303,9 +340,14 @@ export default function Checkout() {
             throw new Error("Không lấy được link thanh toán");
           }
         }
+        // WALLET (như COD): checkout() ở BE đã trừ ví ĐỒNG BỘ trong request này — nếu tới được
+        // đây (không rơi vào catch) nghĩa là đã trừ tiền thành công, rơi xuống khối "success" chung.
       } catch (paymentErr: any) {
         toast.dismiss(loadingToast);
-        toast.error("Lỗi khởi tạo thanh toán: " + (paymentErr.message || "Vui lòng thử lại"));
+        // Backend trả đúng message "Số dư ví không đủ..." (WALLET_INSUFFICIENT_BALANCE) —
+        // hiển thị thẳng thay vì che bằng thông báo lỗi chung, để khách biết cần nạp thêm/đổi
+        // phương thức thay vì tưởng hệ thống lỗi.
+        toast.error(paymentErr.message || "Lỗi khởi tạo thanh toán. Vui lòng thử lại");
         return;
       }
 
@@ -553,6 +595,48 @@ export default function Checkout() {
                 </div>
 
                 <div className="space-y-3">
+                  {(() => {
+                    const walletSufficient = walletBalance !== null && walletBalance >= total;
+                    const walletDisabled = walletLoading || walletBalance === null || !walletSufficient;
+                    return (
+                      <label
+                        className={`flex items-center gap-3 p-4 border-2 rounded-xl transition-all ${
+                          walletDisabled
+                            ? 'border-gray-100 bg-gray-50 cursor-not-allowed opacity-70'
+                            : 'border-gray-200 cursor-pointer hover:bg-gray-50 has-[:checked]:border-[#AF140B] has-[:checked]:bg-[#FFE5E3]'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="payment"
+                          value="WALLET"
+                          checked={paymentMethod === 'WALLET'}
+                          disabled={walletDisabled}
+                          onChange={(e) => setPaymentMethod(e.target.value as 'WALLET')}
+                          className="size-5 text-[#AF140B]"
+                        />
+                        <div className="flex-1">
+                          <p className="font-bold text-gray-800">👛 Ví Kinderland</p>
+                          {walletLoading ? (
+                            <p className="text-sm text-gray-500">Đang kiểm tra số dư...</p>
+                          ) : walletBalance === null ? (
+                            <p className="text-sm text-gray-500">Không kiểm tra được số dư ví</p>
+                          ) : (
+                            <p className="text-sm text-gray-600">
+                              Số dư: {formatPrice(walletBalance)}
+                              {!walletSufficient && (
+                                <span className="text-red-500 font-medium">
+                                  {' '}
+                                  · Thiếu {formatPrice(Math.max(0, total - walletBalance))}
+                                </span>
+                              )}
+                            </p>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })()}
+
                   <label className="flex items-center gap-3 p-4 border-2 border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 transition-all has-[:checked]:border-[#AF140B] has-[:checked]:bg-[#FFE5E3]">
                     <input
                       type="radio"
