@@ -64,6 +64,7 @@ import ReturnRequestPage from './components/customer/ReturnRequestPage';
 import CustomerProfile from './components/customer/CustomerProfile';
 import LoyaltyPoints from './components/customer/LoyaltyPoints';
 import WalletPage from './components/customer/WalletPage';
+import WalletTopUpResult from './components/customer/WalletTopUpResult';
 import Wishlist from './components/pages/Wishlist';
 
 
@@ -282,6 +283,14 @@ function AppContent() {
                   <Route
                     path="/payment-result"
                     element={<PaymentResult />}
+                  />
+                  {/* Trang kết quả nạp ví — VNPay redirect trình duyệt về đây qua backend.
+                      KHÔNG bọc ProtectedRoute như /payment-result: khách vừa quay lại từ cổng
+                      thanh toán có thể chưa kịp khôi phục session, chặn ở đây sẽ đẩy họ sang
+                      trang đăng nhập và mất luôn mã giao dịch trên URL. */}
+                  <Route
+                    path="/wallet/topup/result"
+                    element={<WalletTopUpResult />}
                   />
                   {/* Customer Account Routes */}
                   <Route

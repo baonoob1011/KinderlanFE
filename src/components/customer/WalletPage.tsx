@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
-import { Link } from 'react-router';
+import { useCallback, useState, useEffect } from 'react';
+import { Link, useSearchParams } from 'react-router';
 import { walletApi, Wallet, WalletTransaction, WalletTransactionType } from '../../services/walletApi';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import WalletTopUpDialog from './WalletTopUpDialog';
 import {
   Wallet as WalletIcon,
   ArrowLeft,
@@ -12,10 +13,12 @@ import {
   Loader2,
   AlertCircle,
   Receipt,
+  Plus,
 } from 'lucide-react';
 
 const FILTERS: { label: string; value: WalletTransactionType | undefined }[] = [
   { label: 'Tất cả', value: undefined },
+  { label: 'Nạp tiền', value: 'TOP_UP' },
   { label: 'Thanh toán', value: 'PAYMENT' },
   { label: 'Hoàn tiền', value: 'RETURN_REFUND' },
 ];
@@ -43,38 +46,69 @@ export default function WalletPage() {
   const [page, setPage] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [topUpOpen, setTopUpOpen] = useState(false);
+  /**
+   * Bấm "Thử nạp lại" ở trang kết quả điều hướng về /account/wallet?topup=1 — mở sẵn hộp thoại
+   * rồi xoá tham số để F5 sau đó không tự mở lại.
+   */
   useEffect(() => {
-    const fetchWallet = async () => {
-      setWalletLoading(true);
-      setWalletError(null);
-      try {
-        const data = await walletApi.getMyWallet();
-        setWallet(data);
-      } catch (err: unknown) {
-        setWalletError(err instanceof Error ? err.message : 'Không thể tải thông tin ví.');
-      } finally {
-        setWalletLoading(false);
-      }
-    };
-    fetchWallet();
+    if (searchParams.get('topup') === '1') {
+      setTopUpOpen(true);
+      searchParams.delete('topup');
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
+  const fetchWallet = useCallback(async () => {
+    setWalletLoading(true);
+    setWalletError(null);
+    try {
+      const data = await walletApi.getMyWallet();
+      setWallet(data);
+    } catch (err: unknown) {
+      setWalletError(err instanceof Error ? err.message : 'Không thể tải thông tin ví.');
+    } finally {
+      setWalletLoading(false);
+    }
   }, []);
 
+  const fetchHistory = useCallback(async () => {
+    setTxLoading(true);
+    try {
+      const data = await walletApi.getMyTransactions({ page, size: 20, type: filter });
+      setTransactions(data.content || []);
+      setTotalPages(data.totalPages || 0);
+    } catch (err) {
+      console.error('Failed to fetch wallet transactions:', err);
+      setTransactions([]);
+    } finally {
+      setTxLoading(false);
+    }
+  }, [page, filter]);
+
   useEffect(() => {
-    const fetchHistory = async () => {
-      setTxLoading(true);
-      try {
-        const data = await walletApi.getMyTransactions({ page, size: 20, type: filter });
-        setTransactions(data.content || []);
-        setTotalPages(data.totalPages || 0);
-      } catch (err) {
-        console.error('Failed to fetch wallet transactions:', err);
-        setTransactions([]);
-      } finally {
-        setTxLoading(false);
+    fetchWallet();
+  }, [fetchWallet]);
+
+  useEffect(() => {
+    fetchHistory();
+  }, [fetchHistory]);
+
+  /**
+   * Quay lại tab ví sau khi thanh toán ở VNPay xong: số dư trong state là số cũ từ lần tải
+   * trước, nên nạp lại cả số dư lẫn lịch sử khi trang được hiển thị lại.
+   */
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        fetchWallet();
+        fetchHistory();
       }
     };
-    fetchHistory();
-  }, [page, filter]);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [fetchWallet, fetchHistory]);
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -107,6 +141,14 @@ export default function WalletPage() {
               </div>
               <WalletIcon className="w-16 h-16 text-[#FFD700] drop-shadow-lg" />
             </div>
+            <Button
+              className="w-full sm:w-auto bg-white text-[#AF140B] hover:bg-white/90 font-bold mb-4"
+              disabled={wallet?.status === 'CLOSED'}
+              onClick={() => setTopUpOpen(true)}
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Nạp tiền
+            </Button>
             {walletError && (
               <div className="flex items-center gap-2 text-yellow-200 text-xs">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -231,6 +273,8 @@ export default function WalletPage() {
           </CardContent>
         </Card>
       </div>
+
+      <WalletTopUpDialog open={topUpOpen} onOpenChange={setTopUpOpen} returnTo="/account/wallet" />
     </div>
   );
 }

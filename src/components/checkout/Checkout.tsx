@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { useApp } from '../../context/AppContext';
 import { CreditCard, Truck, AlertCircle, Loader2, Plus, Coins, Tag } from 'lucide-react';
@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { accountApi, AddressRequest } from '../../services/accountApi';
 import { loyaltyApi } from '../../services/loyaltyApi';
 import { walletApi } from '../../services/walletApi';
+import WalletTopUpDialog from '../customer/WalletTopUpDialog';
 
 const EMPTY_ADDRESS: AddressRequest = {
   street: '',
@@ -58,21 +59,44 @@ export default function Checkout() {
   // (xem handlePlaceOrder — payload không gửi amount).
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [walletLoading, setWalletLoading] = useState(true);
+  const [topUpOpen, setTopUpOpen] = useState(false);
+
+  const fetchWallet = useCallback(async () => {
+    if (!user) {
+      setWalletLoading(false);
+      return;
+    }
+    setWalletLoading(true);
+    try {
+      const data = await walletApi.getMyWallet();
+      setWalletBalance(data.balance);
+    } catch {
+      setWalletBalance(null);
+    } finally {
+      setWalletLoading(false);
+    }
+  }, [user]);
 
   useEffect(() => {
-    const fetchWallet = async () => {
-      try {
-        const data = await walletApi.getMyWallet();
-        setWalletBalance(data.balance);
-      } catch {
-        setWalletBalance(null);
-      } finally {
-        setWalletLoading(false);
-      }
+    fetchWallet();
+  }, [fetchWallet]);
+
+  /**
+   * Khách nạp tiền xong quay lại tab checkout: số dư trong state vẫn là số CŨ (trước khi nạp),
+   * nên option "Ví Kinderland" sẽ vẫn hiện thiếu tiền dù ví đã đủ. Hỏi lại số dư mỗi khi trang
+   * được hiển thị lại — giỏ hàng và các lựa chọn khác giữ nguyên vì không hề reload trang.
+   */
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') fetchWallet();
     };
-    if (user) fetchWallet();
-    else setWalletLoading(false);
-  }, [user]);
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [fetchWallet]);
 
   useEffect(() => {
     const fetchAddresses = async () => {
@@ -620,15 +644,42 @@ export default function Checkout() {
                           {walletLoading ? (
                             <p className="text-sm text-gray-500">Đang kiểm tra số dư...</p>
                           ) : walletBalance === null ? (
-                            <p className="text-sm text-gray-500">Không kiểm tra được số dư ví</p>
+                            <p className="text-sm text-gray-500">
+                              Không kiểm tra được số dư ví
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  // Nằm trong <label> nên click mặc định sẽ chọn luôn radio ví
+                                  // (đang disabled) thay vì chạy hành động này.
+                                  e.preventDefault();
+                                  fetchWallet();
+                                }}
+                                className="ml-2 text-[#AF140B] font-semibold hover:underline"
+                              >
+                                Thử lại
+                              </button>
+                            </p>
                           ) : (
                             <p className="text-sm text-gray-600">
                               Số dư: {formatPrice(walletBalance)}
                               {!walletSufficient && (
-                                <span className="text-red-500 font-medium">
-                                  {' '}
-                                  · Thiếu {formatPrice(Math.max(0, total - walletBalance))}
-                                </span>
+                                <>
+                                  <span className="text-red-500 font-medium">
+                                    {' '}
+                                    · Số dư không đủ. Nạp thêm{' '}
+                                    {formatPrice(Math.max(0, total - walletBalance))}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      setTopUpOpen(true);
+                                    }}
+                                    className="ml-2 text-[#AF140B] font-semibold hover:underline"
+                                  >
+                                    Nạp tiền ngay
+                                  </button>
+                                </>
                               )}
                             </p>
                           )}
@@ -830,6 +881,10 @@ export default function Checkout() {
           </div>
         </form>
       </div>
+
+      {/* returnTo='/checkout': sau khi nạp xong, trang kết quả có nút đưa khách về đúng đây.
+          Giỏ hàng nằm ở backend nên quay lại vẫn còn nguyên. */}
+      <WalletTopUpDialog open={topUpOpen} onOpenChange={setTopUpOpen} returnTo="/checkout" />
     </div>
   );
 }
