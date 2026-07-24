@@ -39,6 +39,20 @@ export interface UpdatePromotionPayload extends CreatePromotionPayload {
     promotionId: number;
 }
 
+/** Kết quả validate mã khuyến mãi trên một subtotal cụ thể (BE là nguồn sự thật). */
+export interface PromotionValidation {
+    valid: boolean;
+    /** Lý do không hợp lệ — hiển thị thẳng cho người dùng. */
+    message?: string;
+    promotionId?: number;
+    code?: string;
+    title?: string;
+    discountPercent?: number;
+    subtotal?: number;
+    /** Số tiền được giảm, ĐÃ tính sẵn bởi backend. FE không tự tính lại. */
+    discountAmount?: number;
+}
+
 interface PagedResponse<T> {
     content: T[];
     totalPages: number;
@@ -82,6 +96,27 @@ export const promotionApi = {
             throw new Error(text || `HTTP ${response.status}`);
         }
         const json: ApiResponse<PagedResponse<Promotion>> = await response.json();
+        return json.data;
+    },
+
+    /**
+     * GET /api/v1/promotions/validate?code=&subtotal=
+     *
+     * Kiểm tra mã theo DỮ LIỆU THẬT và lấy số tiền giảm do backend tính.
+     * Mã sai/hết hạn/hết lượt vẫn trả HTTP 200 với { valid: false, message } — đó là kết quả
+     * nghiệp vụ chứ không phải lỗi hệ thống, nên chỉ ném Error khi request thực sự hỏng.
+     */
+    validateCode: async (code: string, subtotal: number): Promise<PromotionValidation> => {
+        const q = new URLSearchParams({ code, subtotal: String(Math.round(subtotal)) });
+        const response = await authenticatedFetch(`${API_BASE_URL}/api/v1/promotions/validate?${q}`, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json', Accept: '*/*' },
+        });
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(text || `HTTP ${response.status}`);
+        }
+        const json: ApiResponse<PromotionValidation> = await response.json();
         return json.data;
     },
 

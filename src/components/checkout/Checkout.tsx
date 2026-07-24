@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { useApp } from '../../context/AppContext';
-import { CreditCard, Truck, AlertCircle, Loader2, Plus, Coins } from 'lucide-react';
+import { CreditCard, Truck, AlertCircle, Loader2, Plus, Coins, Tag } from 'lucide-react';
 import api from '../../services/api';
 import { toast } from 'sonner';
 import { accountApi, AddressRequest } from '../../services/accountApi';
@@ -42,6 +42,9 @@ export default function Checkout() {
 
   const [voucherCode, setVoucherCode] = useState('');
   const [voucherError, setVoucherError] = useState('');
+  const [applyingVoucher, setApplyingVoucher] = useState(false);
+  /** Subtotal gần nhất đã được gửi đi validate lại — chặn bắn trùng request. */
+  const revalidatedSubtotalRef = useRef<number | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'COD' | 'BANK' | 'CARD'>('COD');
 
   // Loyalty points state
@@ -133,22 +136,25 @@ export default function Checkout() {
     }).format(price);
   };
 
-  const subtotal = displayItems.reduce((sum: number, item: any) => {
-    // Robust price mapping matching Cart.tsx
-    const sku = item.skuResponse || item.sku || {};
-    const product = item.productResponse || sku.productResponse || item.product || {};
-    const price = sku.price || item.price || item.unitPrice || product.minPrice || product.price || item.productPrice || 0;
-    return sum + (price * (item.quantity || 1));
-  }, 0);
+  const subtotal = useMemo(
+    () =>
+      displayItems.reduce((sum: number, item: any) => {
+        // Robust price mapping matching Cart.tsx
+        const sku = item.skuResponse || item.sku || {};
+        const product = item.productResponse || sku.productResponse || item.product || {};
+        // Giá có thể về dạng chuỗi ("599000") từ BigDecimal — Number() để không nối chuỗi.
+        const price = Number(
+          sku.price ?? item.price ?? item.unitPrice ?? product.minPrice ?? product.price ?? item.productPrice ?? 0
+        );
+        return sum + price * Number(item.quantity || 1);
+      }, 0),
+    [displayItems]
+  );
 
   const shippingFee = subtotal >= 500000 ? 0 : 30000;
 
-  let discount = 0;
-  if (voucher) {
-    discount = voucher.type === 'percentage'
-      ? (subtotal * voucher.discount) / 100
-      : voucher.discount;
-  }
+  // Số tiền giảm do BACKEND tính (promotionApi.validateCode) — FE không tự nhân percent nữa.
+  const discount = voucher ? Number(voucher.discountAmount) || 0 : 0;
 
   // Loyalty points discount: capped at 50% of subtotal and available points
   const maxLoyaltyDiscount = Math.floor(subtotal * 0.5); // 50% cap
@@ -156,18 +162,49 @@ export default function Checkout() {
     ? Math.min(loyaltyPoints, maxLoyaltyDiscount)
     : 0;
 
-  const total = subtotal + shippingFee - discount - loyaltyDiscount;
+  const total = Math.max(0, subtotal + shippingFee - discount - loyaltyDiscount);
 
-  const handleApplyVoucher = () => {
+  const handleApplyVoucher = async () => {
     setVoucherError('');
-    const success = applyVoucher(voucherCode);
-    if (success) {
-      setVoucherCode('');
-      toast.success("Áp dụng mã giảm giá thành công!");
-    } else {
-      setVoucherError('Mã giảm giá không hợp lệ');
+    setApplyingVoucher(true);
+    try {
+      const result = await applyVoucher(voucherCode, subtotal);
+      if (result.success) {
+        setVoucherCode('');
+        toast.success('Áp dụng mã giảm giá thành công!');
+      } else {
+        // Hiển thị đúng lý do từ backend (hết hạn / hết lượt / chưa đủ điều kiện...)
+        setVoucherError(result.message || 'Mã giảm giá không hợp lệ');
+      }
+    } finally {
+      setApplyingVoucher(false);
     }
   };
+
+  /**
+   * Giỏ hàng đổi sau khi đã áp mã (xoá bớt sản phẩm, đổi số lượng) làm subtotal đổi theo,
+   * nên số tiền giảm cũ không còn đúng. Hỏi lại backend trên subtotal mới; nếu mã không còn
+   * đủ điều kiện thì gỡ luôn thay vì giữ mức giảm sai.
+   */
+  useEffect(() => {
+    if (!voucher || subtotal <= 0) return;
+    if (Number(voucher.subtotal) === subtotal) return;
+
+    // applyVoucher được tạo mới mỗi lần AppProvider render, nên nếu để nó trong dependency
+    // thì effect chạy lại liên tục và bắn trùng request khi request trước chưa xong.
+    // Ref này chốt "đã gửi cho subtotal nào" để mỗi giá trị subtotal chỉ validate đúng 1 lần.
+    if (revalidatedSubtotalRef.current === subtotal) return;
+    revalidatedSubtotalRef.current = subtotal;
+
+    const code = voucher.code;
+    (async () => {
+      const result = await applyVoucher(code, subtotal);
+      if (!result.success) {
+        setVoucherError(result.message || 'Mã giảm giá không còn áp dụng được cho đơn này');
+        toast.warning(`Đã gỡ mã ${code}: ${result.message || 'không còn hợp lệ'}`);
+      }
+    })();
+  }, [subtotal, voucher]);
 
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -196,11 +233,21 @@ export default function Checkout() {
       const storeId = displayItems[0]?.storeId || displayItems[0]?.idStore || displayItems[0]?.store?.id || 1;
 
       // 3. Call API
-      console.log("Placing order from cart:", { selectedAddressId, storeId, itemsCount: items.length });
-      const orderRes = await api.createOrder(selectedAddressId, storeId, items);
+      // 3. Call API — GỬI KÈM mã khuyến mãi. Thiếu tham số này chính là lý do đơn luôn được
+      // tạo với giá gốc dù giao diện đã hiện "đã áp voucher".
+      console.log("Placing order from cart:", {
+        selectedAddressId, storeId, itemsCount: items.length, promotionCode: voucher?.code,
+      });
+      const orderRes = await api.createOrder(selectedAddressId, storeId, items, voucher?.code);
 
       // Extract orderId from response - assuming it's in data or data.id
       const orderId = orderRes.data?.orderId || orderRes.data?.id || orderRes.orderId || orderRes.id;
+
+      // Số tiền HIỂN THỊ ở màn thành công lấy từ đơn backend đã chốt, không lấy `total` FE tự tính,
+      // để hai bên không thể lệch nhau.
+      const createdOrder = orderRes.data ?? orderRes;
+      const serverFinalAmount = Number(createdOrder?.finalAmount ?? createdOrder?.totalAmount ?? NaN);
+      const confirmedTotal = Number.isFinite(serverFinalAmount) ? serverFinalAmount : total;
 
       if (!orderId) {
         console.warn("Could not find orderId in response:", orderRes);
@@ -278,7 +325,7 @@ export default function Checkout() {
             name: user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : (user?.name || user?.username || customerInfo.name),
             phone: user?.phone || customerInfo.phone,
             address: addressStr,
-            total,
+            total: Math.max(0, confirmedTotal - loyaltyDiscount),
             paymentMethod,
             orderDate: new Date().toISOString()
           }
@@ -426,8 +473,9 @@ export default function Checkout() {
                 )}
               </div>
 
-              {/* Voucher */}
-              {/* <div className="bg-white rounded-2xl shadow-lg p-6 border-2 border-gray-200">
+              {/* Voucher — khối này trước đây bị comment toàn bộ, nên màn thanh toán KHÔNG có
+                  ô nhập mã. Đã bật lại và nối vào luồng validate thật của backend. */}
+              <div className="bg-white rounded-2xl shadow-lg p-6 border-2 border-gray-200">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="p-2 bg-white rounded-xl border-2 border-[#AF140B]">
                     <Tag className="size-6 text-[#AF140B]" />
@@ -442,9 +490,9 @@ export default function Checkout() {
                         Mã: {voucher.code}
                       </p>
                       <p className="text-sm text-gray-600">
-                        Giảm {voucher.type === 'percentage'
-                          ? `${voucher.discount}%`
-                          : formatPrice(voucher.discount)}
+                        {voucher.title ? `${voucher.title} — ` : ''}
+                        Giảm {formatPrice(discount)}
+                        {voucher.discountPercent ? ` (${Number(voucher.discountPercent)}%)` : ''}
                       </p>
                     </div>
                     <button
@@ -471,9 +519,10 @@ export default function Checkout() {
                       <button
                         type="button"
                         onClick={handleApplyVoucher}
-                        className="px-6 py-3 bg-[#AF140B] text-white rounded-xl hover:bg-[#8D0F08] transition-all shadow-lg font-bold"
+                        disabled={applyingVoucher || !voucherCode.trim()}
+                        className="px-6 py-3 bg-[#AF140B] text-white rounded-xl hover:bg-[#8D0F08] transition-all shadow-lg font-bold disabled:opacity-60 disabled:cursor-not-allowed"
                       >
-                        Áp dụng
+                        {applyingVoucher ? 'Đang kiểm tra...' : 'Áp dụng'}
                       </button>
                     </div>
                     {voucherError && (
@@ -482,17 +531,15 @@ export default function Checkout() {
                         {voucherError}
                       </p>
                     )}
-                    <div className="mt-4 p-4 bg-[#FFE5E3] rounded-xl border border-[#AF140B]/30">
-                      <p className="font-bold mb-2 text-gray-800">🎁 Mã khả dụng:</p>
-                      <div className="space-y-1 text-sm text-gray-600">
-                        <p className="font-semibold">• GIAM10 - Giảm 10%</p>
-                        <p className="font-semibold">• GIAM50K - Giảm 50.000đ</p>
-                        <p className="font-semibold">• FREESHIP - Giảm 30.000đ phí ship</p>
-                      </div>
-                    </div>
+                    {/* Danh sách mã cứng cũ (GIAM10/GIAM50K/FREESHIP) đã bỏ: đó là mock ở FE,
+                        không tồn tại trong DB nên nhập vào sẽ bị từ chối. Mã thật do trang
+                        Khuyến mãi của quản trị tạo ra. */}
+                    <p className="mt-3 text-sm text-gray-500">
+                      Nhập mã khuyến mãi đang có hiệu lực. Mức giảm được hệ thống kiểm tra và tính trực tiếp.
+                    </p>
                   </div>
                 )}
-              </div> */}
+              </div>
 
               {/* Payment Method */}
               <div className="bg-white rounded-2xl shadow-lg p-6 border-2 border-gray-200">

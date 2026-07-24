@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { DEMO_CUSTOMERS } from '../data/users';
 import api from '../services/api';
+import { promotionApi } from '../services/promotionApi';
 
 interface User {
   id: string;
@@ -18,10 +19,24 @@ interface User {
   points?: number;
 }
 
+/**
+ * Voucher đã áp — LUÔN là dữ liệu do backend trả về, không còn mock ở FE.
+ * discountAmount là số tiền giảm backend đã tính trên đúng subtotal tại thời điểm áp mã;
+ * FE chỉ hiển thị lại, tuyệt đối không tự nhân percent.
+ */
 interface Voucher {
+  promotionId: number;
   code: string;
-  discount: number;
-  type: 'percentage' | 'fixed';
+  title?: string;
+  discountPercent?: number;
+  discountAmount: number;
+  /** Subtotal đã dùng để tính discountAmount — dùng để phát hiện giỏ hàng đổi và áp lại. */
+  subtotal: number;
+}
+
+interface ApplyVoucherResult {
+  success: boolean;
+  message?: string;
 }
 
 interface AppContextType {
@@ -36,7 +51,8 @@ interface AppContextType {
   updateCartItem: (cartItemId: number, quantity: number) => Promise<void>;
   clearCart: () => void;
   voucher: Voucher | null;
-  applyVoucher: (code: string) => boolean;
+  /** Validate mã qua backend trên subtotal hiện tại; trả message lỗi cụ thể để hiển thị. */
+  applyVoucher: (code: string, subtotal: number) => Promise<ApplyVoucherResult>;
   removeVoucher: () => void;
   wishlistCount: number;
   wishlistItems: any[];
@@ -72,12 +88,6 @@ export const useApp = () => {
   }
   return context;
 };
-
-const MOCK_VOUCHERS: Voucher[] = [
-  { code: 'GIAM10', discount: 10, type: 'percentage' },
-  { code: 'GIAM50K', discount: 50000, type: 'fixed' },
-  { code: 'FREESHIP', discount: 30000, type: 'fixed' },
-];
 
 export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUserState] = useState<User | null>(() => {
@@ -345,15 +355,35 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     setCart([]);
   };
 
-  const applyVoucher = (code: string): boolean => {
-    const foundVoucher = MOCK_VOUCHERS.find(
-      (v) => v.code.toLowerCase() === code.toLowerCase()
-    );
-    if (foundVoucher) {
-      setVoucher(foundVoucher);
-      return true;
+  /**
+   * Áp mã khuyến mãi: hỏi backend (nguồn sự thật) rồi lưu CẢ số tiền giảm backend trả về.
+   * Trước đây hàm này dò trong mảng mock ở FE và chỉ lưu mã để hiển thị, nên số tiền giảm
+   * không bao giờ tới được backend — đơn luôn được tạo với giá gốc.
+   */
+  const applyVoucher = async (code: string, subtotal: number): Promise<ApplyVoucherResult> => {
+    const trimmed = (code || '').trim().toUpperCase();
+    if (!trimmed) {
+      return { success: false, message: 'Vui lòng nhập mã giảm giá' };
     }
-    return false;
+    try {
+      const result = await promotionApi.validateCode(trimmed, subtotal);
+      if (!result?.valid || !result.promotionId) {
+        setVoucher(null);
+        return { success: false, message: result?.message || 'Mã giảm giá không hợp lệ' };
+      }
+      setVoucher({
+        promotionId: result.promotionId,
+        code: result.code || trimmed,
+        title: result.title,
+        discountPercent: result.discountPercent,
+        discountAmount: Number(result.discountAmount ?? 0),
+        subtotal: Number(result.subtotal ?? subtotal),
+      });
+      return { success: true };
+    } catch (error: any) {
+      setVoucher(null);
+      return { success: false, message: error?.message || 'Không kiểm tra được mã giảm giá' };
+    }
   };
 
   const removeVoucher = () => {

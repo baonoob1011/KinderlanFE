@@ -669,9 +669,16 @@ export const api = {
   /**
    * Create a new order
    */
-  createOrder: async (addressId: number, storeId: number, items: any[]) => {
+  /**
+   * Tạo đơn. promotionCode là TUỲ CHỌN — backend tự validate mã và tự tính lại subtotal,
+   * phí ship, tiền giảm, tổng cuối. FE không gửi bất kỳ con số tiền nào.
+   */
+  createOrder: async (addressId: number, storeId: number, items: any[], promotionCode?: string) => {
     try {
-      const endpoint = `/api/v1/orders/create?addressId=${addressId}&storeId=${storeId}`;
+      let endpoint = `/api/v1/orders/create?addressId=${addressId}&storeId=${storeId}`;
+      if (promotionCode) {
+        endpoint += `&promotionCode=${encodeURIComponent(promotionCode)}`;
+      }
       console.log("Creating order through api.post:", endpoint, items);
       return await api.post(endpoint, items);
     } catch (error) {
